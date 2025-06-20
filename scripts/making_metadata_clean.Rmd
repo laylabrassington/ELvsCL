@@ -216,7 +216,7 @@ dge <- calcNormFactors(dge)
 #v <- voomWithQualityWeights(dge, plot = FALSE)
 
 #saveRDS(v,file='~/vandy/early_life/17apr25_voom_normalized.rds')
-#saveRDS(v,file='~/vandy/early_life/17apr25_voomWithQualityWeights_normalized.rds')
+#saveRDS(v,file='~/vandy/early_life/17apr25_voomWithQualityWeights_normalized.rds') aka exp.rds !!!!
 ```
 
 
@@ -775,7 +775,7 @@ filter for early life models
 ```{r}
 dat4<-subset(dat3,!is.na(Early_urban_PC1)) #meta_894_13may25
 Early_urban_PC1_scale = as.numeric(scale(dat4$Early_urban_PC1))
-K = K[dat4$sample_name,dat4$sample_name]
+K = K[dat4$sample_name,dat4$sample_name] ##final K.rds saved here !!!!
 exp_filt=exp_filt[,dat4$sample_name]
 dim(dat4)
 dim(K)
@@ -851,5 +851,5 @@ meta$ethnicity_groups[which(meta$ethnicity=="Mah_Meri")]<-"Senoi"
 table(meta$ethnicity_groups)
 ```
 
-##FINAL META SAVED HERE##
+##meta_final.rds SAVED HERE##
 
