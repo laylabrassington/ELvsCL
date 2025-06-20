@@ -13,6 +13,10 @@ kinship matrix for modeling
 #### exp.rds 
 was too big for github (contact Layla for file) 
 
+#### model_outs
+  model results for all ancestry groups and files for urban and rural genes
+
+
 
 ### script files: 
 #### making_metadata_clean.Rmd
@@ -22,6 +26,5 @@ was too big for github (contact Layla for file)
 #### ancestry_ge_model_clean.Rmd
   code for running GE models for 3 major ancestry groups and everyone 
 
-#### model_outs
-  model results for all ancestry groups and files for urban and rural genes 
+ 
   
