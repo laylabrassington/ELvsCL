@@ -1,5 +1,5 @@
 # ELvsCL
-### code and data for CL vs EL paper
+### code and data for EL vs CL paper
 ----------------------------------------
 
 
