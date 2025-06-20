@@ -1,0 +1,784 @@
+---
+title: "making_metadata_clean_19june25"
+author: "layla"
+date: "2025-06-19"
+output: html_document
+---
+
+
+new script
+------------------------------------------------------------------------------------------------------------
+
+from (sol) ~/vandy/early_life/el_rnaseq_qc_17apr25
+```{r setup, include=FALSE} 
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+setwd("~/vandy/early_life/")
+
+library(limma)
+library(edgeR)
+library(ggplot2)
+library(corrplot)
+library(googlesheets4)
+library(ggrepel)
+library(stringr)
+library(dplyr)
+gs4_deauth()
+```
+
+
+counts matrix qc
+----------------------
+
+google sheets authorization won't work on sol cluster so i manually downloaded these sheets 
+```{r eval=FALSE, include=FALSE}
+qc1=read_sheet('https://docs.google.com/spreadsheets/d/1Boi9IQKyTjObnZzNEe015KsUNGTW2m6O2Hw7SJZiOaM/edit?gid=1456305001#gid=1456305001',sheet=1)
+qc2=read_sheet('https://docs.google.com/spreadsheets/d/1Boi9IQKyTjObnZzNEe015KsUNGTW2m6O2Hw7SJZiOaM/edit?gid=1456305001#gid=1456305001',sheet=2)
+qc3=read_sheet('https://docs.google.com/spreadsheets/d/1Boi9IQKyTjObnZzNEe015KsUNGTW2m6O2Hw7SJZiOaM/edit?gid=1456305001#gid=1456305001',sheet=3)
+corrected=read_sheet('https://docs.google.com/spreadsheets/d/1ULwvuZuUptctv8fYn6xhRf0W3_NDm1-j2H2Nts_R0w4/edit?gid=1863156836#gid=1863156836')
+```
+
+
+Read in data and organize a few things
+```{r}
+# from Dropbox
+medical=read.csv('~/vandy/early_life/github_17apr25/medical.csv')
+traditional=read.csv('~/vandy/early_life/github_17apr25/traditional_lifestyle.csv')
+personal=read.csv('~/vandy/early_life/github_17apr25/personal_information.csv')
+early=read.csv('~/vandy/early_life/github_17apr25/early_life.csv')
+urbanicity <- read.delim('~/vandy/early_life/github_17apr25/OAHeLP_location_urbanicity_scores_2025-03-08.txt')
+urbanicity<-unique(urbanicity[,c('village_id','urb_score')])
+
+# from Google
+qc1=read.csv('~/vandy/early_life/github_17apr25/RNA-seq QC - round1.csv')
+qc2=read.csv('~/vandy/early_life/github_17apr25/RNA-seq QC - round2.csv')
+qc3=read.csv('~/vandy/early_life/github_17apr25/RNA-seq QC - round3.csv')
+corrected=read.csv('~/vandy/early_life/github_17apr25/OA PBMC RNA-Seq Info - TgenForm.csv')
+qc1$batch<-1
+qc2$batch<-2
+qc3$batch<-3
+qc_all<-rbind(qc1,qc2,qc3)
+# duplicate
+qc_all<-qc_all[-which(qc_all$TID==613 & qc_all$Lane==2),]
+
+# recode ethnicity
+personal$ethnicity<-NA
+personal$ethnicity[which(personal$ethnicity___0==1)]<-'Batek'
+personal$ethnicity[which(personal$ethnicity___1==1)]<-'Jehai'
+personal$ethnicity[which(personal$ethnicity___2==1)]<-'Jakun'
+personal$ethnicity[which(personal$ethnicity___3==1)]<-'Mah_Meri'
+personal$ethnicity[which(personal$ethnicity___4==1)]<-'Mendriq'
+personal$ethnicity[which(personal$ethnicity___5==1)]<-'Orang_Kuala'
+personal$ethnicity[which(personal$ethnicity___6==1)]<-'Orang_Seletar'
+personal$ethnicity[which(personal$ethnicity___7==1)]<-'Semai'
+personal$ethnicity[which(personal$ethnicity___8==1)]<-'Semaq_Beri'
+personal$ethnicity[which(personal$ethnicity___9==1)]<-'Temiar'
+personal$ethnicity[which(personal$ethnicity___10==1)]<-'Temuan'
+personal$ethnicity[which(personal$ethnicity___99==1)]<-'Other'
+tmp<-rowSums(personal[,18:29])
+personal$ethnicity[which(tmp>1)]<-'Multiple'
+
+# make broader groups
+personal$ethnicity2<-'Other'
+personal$ethnicity2[which(personal$ethnicity %in% c('Batek','Jehai','Mendriq'))]<-'Semang'
+personal$ethnicity2[which(personal$ethnicity %in% c('Temuan','Jakun','Orang_Seletar','Orang_Kuala'))]<-'Proto_Malay'
+personal$ethnicity2[which(personal$ethnicity %in% c('Temiar','Semai','Semaq_Beri','Mah_Meri'))]<-'Senoi'
+
+# merge metadata
+all <- merge(
+  medical[, c('rid','tid','sex_medical','med_date','neutrophils_perc','lymphocytes_perc','monocytes_perc','eosinophils_perc','basophils_perc',
+              'neutrophils','lymphocytes','monocytes','eosinophils','basophils',
+              'neutrophils_perc_manual','lymphocytes_perc_manual','monocytes_perc_manual','eosinophils_perc_manual','interview_location_med')],
+  personal[, c('rid','ethnicity','ethnicity2','other_ethnicity','date_of_birth')])
+all<-merge(all,urbanicity,by.x='interview_location_med',by.y='village_id')
+all$age<-as.numeric(as.Date(all$med_date)-as.Date(all$date_of_birth))/365
+```
+
+Estimate sex from the RNA-seq data as a sanity check
+```{r}
+# read in and filter the RNA-seq data
+counts=read.delim('~/vandy/early_life/OA_countMatrix_5Mar24.txt',sep=' ')
+protein_coding_genes <- readRDS("~/vandy/tcRNAseq/protein_coding_genes_29jan25.rds")
+protein_coding_gene_ids <- protein_coding_genes$external_gene_name
+# only keep PC genes
+counts2 <- counts[rownames(counts) %in% protein_coding_gene_ids, ]
+
+t2g <- read.delim('~/vandy/tcRNAseq/30aug24_protein_coding_gene_info.txt')
+y_genes <- t2g %>% filter(chromosome_name=="Y")
+
+
+
+# sex check
+qc_tmp<-as.data.frame(names(counts2))
+names(qc_tmp)[1]<-'sample_name'
+qc_tmp$tot_pc_counts<-apply(counts2,2,sum)
+qc_tmp$tot_counts<-apply(counts,2,sum)
+qc_tmp$chrY_counts<-apply(counts[which(rownames(counts) %in% y_genes$external_gene_name),],2,sum)
+qc_tmp$TID<-gsub('X', '', qc_tmp$sample_name)
+qc_tmp$order<-1:dim(qc_tmp)[1]
+qc_tmp$rnaseq_sex<-'female'
+qc_tmp$rnaseq_sex<-NA
+qc_tmp$rnaseq_sex[which(qc_tmp$chrY_counts/qc_tmp$tot_pc_counts>0.0005)]<-'male'
+qc_tmp$rnaseq_sex[which(qc_tmp$chrY_counts/qc_tmp$tot_pc_counts<0.0001)]<-'female'
+hist(qc_tmp$chrY_counts/qc_tmp$tot_pc_counts,breaks=50);abline(v=0.0001,col='red',lty=2,main='');abline(v=0.0005,col='blue',lty=2)
+```
+
+Estimate sex from the RNA-seq data as a sanity check
+```{r}
+qc_all<-merge(qc_tmp,qc_all,by='TID',all.x=T)
+qc_all<-qc_all[order(qc_all$order),]
+
+# remove the hemoglobin transcripts, hemoglobin contamination, and low counts
+counts2=counts2[-which(rownames(counts2) %in% c('HBB','HBA1','HBA2')),]
+remove<-subset(qc_all,tot_counts<1000000 | X..uniquely.mapped.reads <0.7 | X..unique.hemoglobin >10)
+counts3<-counts2[,-c(which(names(counts2) %in% remove$sample_name))]
+
+# make a TPM matrix 
+tmp<-as.data.frame(rownames(counts3))
+names(tmp)<-'gene'
+tmp$order<-1:dim(tmp)[1]
+tmp<-merge(tmp,protein_coding_genes,by.x='gene',by.y='external_gene_name')
+tmp<-merge(tmp,t2g,by.x='gene',by.y='external_gene_name')
+tmp$length<-tmp$end_position-tmp$start_position
+len<-as.data.frame(aggregate(tmp$length~tmp$gene,FUN=mean))
+
+counts3_v2<-counts3[which(rownames(counts3) %in% len[,1]),]
+
+x <- counts3_v2 / len[,2]
+tpm.mat <- t( t(x) * 1e6 / colSums(x) )
+
+med_TPM<-apply(tpm.mat,1,median)
+keep<-med_TPM[which(med_TPM>2)]
+counts4<-counts3[which(rownames(counts3) %in% names(keep)),]
+
+rm(counts);rm(counts2);rm(counts3)
+```
+
+### Merge and organize the metadata
+```{r}
+names<-subset(qc_all,sample_name %in% names(counts4))
+names$tid2<-names$TID
+
+# correct some issues with sample swaps
+names<-merge(names,corrected[,c("CORRECTED_TID",'Patient_ID')],by.y='Patient_ID', by.x='tid2',all.x=T)
+
+names$tid2[which(names$CORRECTED_TID!=names$TID)]<-names$CORRECTED_TID[which(names$CORRECTED_TID!=names$TID)]
+names<-merge(names,all, by.x='tid2',by.y='tid',all.x=T)
+
+miss<-which(is.na(names$urb_score))
+for (i in miss){
+  tmp<- subset(names,med_date %in% names$med_date[i])
+  names$urb_score[i]<-median(tmp$urb_score,na.rm=T)
+}
+
+# sex check
+subset(names,sex_medical!=rnaseq_sex & batch==3)
+```
+
+### Make combined variable for neut/lymph percentage
+```{r}
+names$neut_perc_combine<-names$neutrophils_perc
+names$neut_perc_combine[which(is.na(names$neutrophils_perc))]<-names$neutrophils_perc_manual[which(is.na(names$neutrophils_perc))]
+
+names$eosinophils_perc_combine<-names$eosinophils_perc
+names$eosinophils_perc_combine[which(is.na(names$eosinophils_perc))]<-names$eosinophils_perc_manual[which(is.na(names$eosinophils_perc))]
+
+names$monocytes_perc_combine<-names$monocytes_perc
+names$monocytes_perc_combine[which(is.na(names$monocytes_perc))]<-names$monocytes_perc_manual[which(is.na(names$monocytes_perc))]
+
+names$lympho_perc_combine<-names$lymphocytes_perc
+names$lympho_perc_combine[which(is.na(names$lymphocytes_perc))]<-names$lymphocytes_perc_manual[which(is.na(names$lymphocytes_perc))]
+
+names$lympho_perc_combine[which(is.na(names$lympho_perc_combine))]<-mean(names$lympho_perc_combine,na.rm=T)
+names$neut_perc_combine[which(is.na(names$neut_perc_combine))]<-mean(names$neut_perc_combine,na.rm=T)
+names$eosinophils_perc_combine[which(is.na(names$eosinophils_perc_combine))]<-mean(names$eosinophils_perc_combine,na.rm=T)
+names$monocytes_perc_combine[which(is.na(names$monocytes_perc_combine))]<-mean(names$monocytes_perc_combine,na.rm=T)
+
+pca<-prcomp(names[,c('monocytes_perc_combine','neut_perc_combine','eosinophils_perc_combine','lympho_perc_combine')],scale=T)
+names$PC1_cell<-pca$x[,1]
+names$PC2_cell<-pca$x[,2]
+cor.test(names$lympho_perc_combine,names$PC1_cell)
+
+names<-names[order(names$order),]
+
+cell_pcs= names %>% dplyr::select(sample_name, PC1_cell, PC2_cell)
+meta=read.delim('~/vandy/early_life/21Mar24_metadata.txt')
+meta_cell = left_join(meta, cell_pcs, by="sample_name")
+#write.table(meta_cell, "~/vandy/early_life/meta_cell_18apr25.txt")
+```
+
+### voom norm and save 
+```{r}
+dge <- DGEList(counts=counts4)
+dge <- calcNormFactors(dge)
+
+#v <- voom(dge, plot = FALSE)
+#v <- voomWithQualityWeights(dge, plot = FALSE)
+
+#saveRDS(v,file='~/vandy/early_life/17apr25_voom_normalized.rds')
+#saveRDS(v,file='~/vandy/early_life/17apr25_voomWithQualityWeights_normalized.rds')
+```
+
+
+### pca and covariate detection 
+```{r}
+rm(list = ls())
+```
+
+```{r}
+meta=read.delim('~/vandy/early_life/meta_cell_18apr25.txt', sep = ' ')
+v=read.delim('~/vandy/early_life/21Mar24_voomWithQualityWeights_normalized.txt')
+```
+
+
+run pca and plot
+```{r}
+pca<-prcomp(t(v))
+plot(pca$x[,1],pca$x[,2])
+```
+
+join GE pcs w/ metadata 
+```{r}
+pcs <- data.frame(pca$x[,1:2])
+pcs$sample_name <- rownames(pcs)
+meta <- left_join(meta, pcs, by = "sample_name")
+```
+
+
+```{r}
+meta_numeric <- meta
+meta_numeric$sex_numeric = ifelse(meta_numeric$rnaseq_sex=="female", 1,0)
+meta_numeric %<>% dplyr::select(where(is.numeric))
+meta_numeric %<>% select(-tid2, -TID, -CORRECTED_TID, -Sequencing_Raw_Reads.TGEN, -order, -interview_location_med)
+meta_numeric %<>% na.omit(dat_numeric)
+
+pheatmap::pheatmap(cor(meta_numeric), display_numbers = TRUE, number_color = "black")
+```
+
+
+```{r}
+meta %>% ggplot(aes(x=PC1, y=PC2, color=Total.reads, shape=as.factor(batch))) + geom_point(size=3) + theme_classic()
+meta %>% ggplot(aes(x=PC1, y=PC2, color=Total.reads, shape=as.factor(batch))) + geom_point(size=3) + theme_classic()
+```
+
+
+```{r}
+meta %>% ggplot(aes(x=Total.reads, fill=as.factor(batch))) + geom_histogram() + theme_classic()
+meta %>% select(tot_counts, batch) %>% na.omit()  %>% ggplot(aes(x=tot_counts, fill=as.factor(batch))) + geom_histogram() + theme_classic()
+meta %>% select(tot_pc_counts, batch) %>% na.omit()  %>% ggplot(aes(x=tot_pc_counts, fill=as.factor(batch))) + geom_histogram() + theme_classic()
+meta %>% select(X..uniquely.mapped.reads, batch) %>% na.omit()  %>% ggplot(aes(x=X..uniquely.mapped.reads, fill=as.factor(batch))) + geom_histogram() + theme_classic()
+```
+
+
+new script
+------------------------------------------------------------------------------------------------------------
+from (sol) ~/vandy/early_life/el_score_18apr25
+
+```{r setup, include=FALSE} 
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+setwd("~/vandy/early_life/")
+
+rm(list = ls())
+library(tidyverse)
+library(factoextra)
+library(FactoMineR)
+library(factoextra)
+#library(exactextractr)
+library(geosphere)
+library(mice)
+library(psych)
+library(ggplot2)
+library(ggmap)
+library(ggrepel)
+library(dplyr)
+library(data.table)
+library(ggrepel)
+library(ggforce)
+library(scales)
+#library(preprocessCore)
+library(nlWaldTest)
+#library(nationalparkcolors)
+#pal <- park_palette("Badlands")
+library(egg)
+```
+
+### Read in the data, run Tom's approved cleaning code 
+```{r, results = 'hide', include=FALSE} 
+Medical=read.csv('~/vandy/early_life/github_17apr25/medical.csv')
+Traditional=read.csv('~/vandy/early_life/github_17apr25/traditional_lifestyle.csv')
+Personal_Information=read.csv('~/vandy/early_life/github_17apr25/personal_information.csv')
+Early_Life=read.csv('~/vandy/early_life/github_17apr25/early_life.csv')
+Visit_Register <- read.csv('~/vandy/early_life/github_17apr25/visit_register.csv')
+Village_Register <- read.csv('~/vandy/early_life/github_17apr25/oa_village_register.csv')
+Urbanicity <- read.delim('~/vandy/early_life/github_17apr25/OAHeLP_location_urbanicity_scores_2025-03-08.txt')
+
+################################################################################################
+# Merge datasets together
+# Changing to merge everything to medical, since overall goal is to end up with a dataframe with cases that have at least some of those measurements
+################################################################################################
+OA_data <- left_join(Medical, Personal_Information, by = "rid", suffix = c(".medical", ".personal"))
+
+# I am going to merge on traditional lifestyle and early life data, but important to remember that not everyone will have these interviews. Complete cases who have at least had interviews could be filtered out here, but I'll leave to maintain maximum utility depending on analysis downstream
+table(OA_data$vid %in% Traditional$vid)  # 1036 have interviews, 121 missing. Seems reasonable.
+OA_data <- left_join(OA_data, Traditional, by = c("rid","vid"))
+
+table(OA_data$vid %in% Early_Life$vid)  # 1041 have interviews, 116 missing. Seems reasonable.
+OA_data <- left_join(OA_data, Early_Life, by = c("rid","vid"))
+
+# Get lat/long of village from the village register
+table(OA_data$interview_location_med %in% Village_Register$village_id)  # 100% matches. Rob had ~50 lines of code here doing various merges around this, and I can't figure out why. But I'll just ignore.
+OA_data$lat <- Village_Register$lat[match(OA_data$interview_location_med, Village_Register$village_id)]
+OA_data$long <- Village_Register$long[match(OA_data$interview_location_med, Village_Register$village_id)]
+
+# rename to later variable name used for village code
+names(OA_data)[which(names(OA_data) == "interview_location_med")] <- "village_id"
+
+################################################################################################
+# Code ethnolinguistic groups
+################################################################################################
+OA_data$ethnicity<-NA
+OA_data$ethnicity[which(OA_data$ethnicity___0==1)]<-'Batek'
+OA_data$ethnicity[which(OA_data$ethnicity___1==1)]<-'Jehai'
+OA_data$ethnicity[which(OA_data$ethnicity___2==1)]<-'Jakun'
+OA_data$ethnicity[which(OA_data$ethnicity___3==1)]<-'Mah_Meri'
+OA_data$ethnicity[which(OA_data$ethnicity___4==1)]<-'Mendriq'
+OA_data$ethnicity[which(OA_data$ethnicity___5==1)]<-'Orang_Kuala'
+OA_data$ethnicity[which(OA_data$ethnicity___6==1)]<-'Orang_Seletar'
+OA_data$ethnicity[which(OA_data$ethnicity___7==1)]<-'Semai'
+OA_data$ethnicity[which(OA_data$ethnicity___8==1)]<-'Semaq_Beri'
+OA_data$ethnicity[which(OA_data$ethnicity___9==1)]<-'Temiar'
+OA_data$ethnicity[which(OA_data$ethnicity___10==1)]<-'Temuan'
+OA_data$ethnicity[which(OA_data$ethnicity___99==1)]<-'Other'
+OA_data$ethnicity[which(OA_data$other_ethnicity %in% c("kensiu", "Kensiu", "Kensiu, melayu (father)"))]<-'Kensiu'
+OA_data$ethnicity[which(OA_data$other_ethnicity %in% c("semelai", "Semelai"))]<-'Semelai'
+OA_data$ethnicity[which(is.na(OA_data$ethnicity) & OA_data$interview_location_med == 25)]<-'Jakun'  # this is Kg Petoh, so almost certainly jakun
+
+sum(is.na(OA_data$ethnicity))  # 13 missing, other categories like melayu
+
+# Calculate the row sums for the specific columns
+tmp <- rowSums(OA_data[, c("ethnicity___0", "ethnicity___1", "ethnicity___2", "ethnicity___3", 
+                                 "ethnicity___4", "ethnicity___5", "ethnicity___6", "ethnicity___7", 
+                                 "ethnicity___8", "ethnicity___9", "ethnicity___10", "ethnicity___99")])
+
+# Assign 'Multiple' to ethnicity if more than one ethnicity is indicated
+OA_data$ethnicity[which(tmp > 1)] <- 'Multiple'
+
+# make broader groups
+OA_data$ethnicity2<-'Other'
+OA_data$ethnicity2[which(OA_data$ethnicity %in% c('Batek','Jehai','Mendriq', "Kensiu"))]<-'Semang'
+OA_data$ethnicity2[which(OA_data$ethnicity %in% c('Temuan','Jakun','Orang_Seletar','Orang_Kuala','Semelai'))]<-'Proto_Malay'
+OA_data$ethnicity2[which(OA_data$ethnicity %in% c('Temiar','Semai','Semaq_Beri','Mah_Meri'))]<-'Senoi'
+
+# Calculate age
+OA_data <- OA_data %>%
+  mutate(age = as.numeric(ymd(med_date) - ymd(date_of_birth)) / 365.25)
+
+######
+# specific corrections from Rob
+######
+
+OA_data$height_hip[which(OA_data$tid == "1269")] <- 85
+OA_data$height_hip[which(OA_data$tid == "929")] <- 98
+OA_data$height_hip[which(OA_data$tid == "1011")] <- 97
+
+OA_data$height_hip[which(OA_data$tid == "1233")] <- 100
+OA_data$height_knee[which(OA_data$tid == "1233")] <- 51
+OA_data$waist_circum[which(OA_data$tid == "1233")] <- 110
+OA_data$hip_circum[which(OA_data$tid == "1233")] <- 114
+
+# Define the correction list
+waist_correction <- c("1636", 	
+                      "1491",
+                      "1145")
+tar <- which(OA_data$tid %in% waist_correction)
+OA_data$waist_circum[tar] <- OA_data$waist_circum[tar] *2.54
+
+# waist outliers entered wrong
+OA_data$waist_circum[which(OA_data$tid == 1602)] <- 74.2
+
+# Define the correction list for hip circumference
+hip_correction <- c("1636")  # Added missing rid values
+
+tar <- which(OA_data$tid %in% hip_correction)
+OA_data$hip_circum[tar] <- OA_data$hip_circum[tar] *2.54
+
+# waist outliers entered wrong
+OA_data$hip_circum[which(OA_data$tid == 1504)] <- 73
+OA_data$hip_circum[which(OA_data$tid == 1486)] <- NA #implausible value
+OA_data$hip_circum[which(OA_data$tid == 1258)] <- 80.5 
+OA_data$hip_circum[which(OA_data$tid == 1235)] <- 101 # this value was crossed out but replaced by another value that doesn't make sense 
+
+# Fix problematic height_knee observations
+hist(OA_data$height_knee)
+filter(OA_data, height_knee < 35 | height_knee > 57) %>% dplyr::select(rid, med_date, village_id, sex_medical:temp, tid)
+
+# implausible but unfixable. Others seem real.
+OA_data$height_knee[which(OA_data$tid == 780)] <- NA
+
+################################################################################################
+# Calculate BMI/body comp metrics now that these variables are cleaned - then look at who may be outside the NHANES range
+################################################################################################
+OA_data <- OA_data %>%
+  mutate(
+    BMI = weight / ((height_standing/100) * (height_standing/100)),
+    waist_height = waist_circum / height_standing,
+    waist_hip = waist_circum/hip_circum,
+    BRI = 364.2 - 365.5*sqrt(1-(waist_circum/(2*pi))^2/(0.5*height_standing)^2)
+  )
+
+OA_data[which(OA_data$waist_hip > 1.35), "hip_circum"] <- NA
+OA_data[which(OA_data$waist_hip > 1.35), "waist_circum"] <- NA
+OA_data[which(OA_data$waist_hip > 1.35), "waist_hip"] <- NA
+
+# And I'm going to use .65 as the lower end for now (which is NHANES)
+OA_data[which(OA_data$waist_hip < 0.65), "hip_circum"] <- NA
+OA_data[which(OA_data$waist_hip < 0.65), "waist_circum"] <- NA
+OA_data[which(OA_data$waist_hip < 0.65), "waist_hip"] <- NA
+
+# Make triglycerides numeric
+OA_data[which(OA_data$triglyc=="<0.56"),]$triglyc <- "0.56"
+OA_data[which(OA_data$triglyc==">5.65"),]$triglyc <- "5.65"
+OA_data[grep("<",OA_data$total_chol),]$total_chol <- "2.59"
+OA_data[grep(">",OA_data$total_chol),]$total_chol <- "10.36"
+OA_data[grep("<",OA_data$hdl),]$hdl <- "0.52"
+OA_data[grep("<",OA_data$hba1c),]$hba1c <- "4.0"
+OA_data[,c("hdl","total_chol","triglyc","hba1c","ldl")] <- sapply(OA_data[,c("hdl","total_chol","triglyc","hba1c","ldl")],function(x) as.numeric(x))
+
+# fixes
+OA_data$ldl[which(OA_data$tid == "1033")] <- 0.94
+
+# Transform metric cholesterol data to imperial system 
+# https://heartcare.sydney/cholesterol-unit-conversion/#:~:text=To%20convert%20from%20mmol%2FL,in%20mmol%2FL%20by%2038.67.
+
+#To convert Total cholesterol, LDL and HDL from mg/dL to mmol/L, divide the value in mg/dL by 38.67. To convert from mmol/L to mg/dL, multiply the value in mmol/L by 38.67.
+OA_data$total_chol <- OA_data$total_chol*38.67 # is currently in mmol/L, change to imperial mg/dL
+OA_data$hdl <- OA_data$hdl*38.67
+OA_data$ldl <- OA_data$ldl*38.67
+
+#To convert Triglyceride values from mg/dL to mmol/L, divide the value in mg/dL by 88.57. To convert from mmol/L to mg/dL, multiply the value in mmol/L by 88.57.
+OA_data$triglyc <- OA_data$triglyc*88.57
+
+# Make LDL:HDL
+OA_data$ldl_hdl <- OA_data$ldl/OA_data$hdl
+
+# Remove some low values 
+OA_data[which(OA_data$ldl_hdl < 0.5),]$ldl_hdl <- NA
+OA_data[which(OA_data$ldl < 25),]$ldl <- NA
+
+# Make non-hdl
+OA_data$non_hdl = OA_data$total_chol - OA_data$hdl
+
+# OUTLIER FIXES from AJL
+# removing remaining outliers - many height outliers from the same date - 2020-03-04
+OA_data$BRI[which(OA_data$BRI>20)]<-NA
+OA_data$height_standing[which(OA_data$height_standing<130 | OA_data$height_standing>180)]<-NA
+
+# create some cutoff/binary variables
+OA_data$obese<-ifelse(OA_data$BMI>30,1,0)
+OA_data$hypertension<-ifelse(OA_data$sys_bp2>129 | OA_data$dias_bp2>79 ,1,0)
+OA_data$t2d<-ifelse(OA_data$glucose>199 | OA_data$hba1c>6.4 ,1,0)
+```
+
+
+
+### Run Rob's code to get early life PCs - made a few edits to variables
+```{r, results = 'hide', } 
+# Can you use a motorized vehicle on land to reach their village?
+OA_data <- OA_data %>%
+  mutate(early_vill_access_road = ifelse(  early_vill_access_by___car == 1 | 
+                                              early_vill_access_by___truck == 1, 
+                                            1, 0))
+
+OA_data <- OA_data %>%
+  mutate(birth_place_hosp = ifelse(birth_place_type == 0, 1, 0))
+OA_data$index<-1:dim(OA_data)[1]
+
+# for people with one parent, add data from the other parent
+dad_missing<-subset(OA_data,is.na(early_father_occupation___crop & early_father_occupation___subsist_crop & early_father_occupation___forage & early_father_occupation___wage) & !is.na(early_mother_occupation___crop & early_mother_occupation___subsist_crop & early_mother_occupation___forage & early_mother_occupation___wage))
+mom_missing<-subset(OA_data,!is.na(early_father_occupation___crop & early_father_occupation___subsist_crop & early_father_occupation___forage & early_father_occupation___wage) & is.na(early_mother_occupation___crop & early_mother_occupation___subsist_crop & early_mother_occupation___forage & early_mother_occupation___wage))
+
+# if dad is missing, replace with mom's info
+OA_data$early_father_occupation___crop[dad_missing$index]<-OA_data$early_mother_occupation___crop[dad_missing$index]
+OA_data$early_father_occupation___subsist_crop[dad_missing$index]<-OA_data$early_mother_occupation___subsist_crop[dad_missing$index]
+OA_data$early_father_occupation___forage[dad_missing$index]<-OA_data$early_mother_occupation___forage[dad_missing$index]
+OA_data$early_father_occupation___wage[dad_missing$index]<-OA_data$early_mother_occupation___wage[dad_missing$index]
+
+# if mom is missing, replace with dad's info
+OA_data$early_mother_occupation___crop[mom_missing$index]<-OA_data$early_father_occupation___crop[mom_missing$index]
+OA_data$early_mother_occupation___subsist_crop[mom_missing$index]<-OA_data$early_father_occupation___subsist_crop[mom_missing$index]
+OA_data$early_mother_occupation___forage[mom_missing$index]<-OA_data$early_father_occupation___forage[mom_missing$index]
+OA_data$early_mother_occupation___wage[mom_missing$index]<-OA_data$early_father_occupation___wage[mom_missing$index]
+
+# Variable Groups
+parent_occupation <-   c("early_father_occupation___crop",
+                         "early_father_occupation___subsist_crop",
+                         "early_father_occupation___forage",
+                         "early_father_occupation___wage",
+                         "early_mother_occupation___crop",
+                         "early_mother_occupation___subsist_crop",
+                         "early_mother_occupation___forage",
+                         "early_mother_occupation___wage")
+
+hh_item <- c( "early_hh_item___moto",
+              "early_hh_item___bicycle",
+              "early_hh_item___generator",
+              "early_hh_item___blowpipe",
+              "early_hh_item___machete",
+              "early_hh_item___flip_phone",
+              "early_hh_item___smart_phone",
+              "early_hh_item___chainsaw",
+              "early_hh_item___weedwacker",
+              "early_hh_item___car",
+              "early_hh_item___tv",
+              "early_hh_item___gas_stove")
+
+diet <- c("early_store",
+          "early_oil_sugar",
+          "early_wild_meat")
+
+early_misc <- c("early_school",
+                "birth_place_hosp",
+                # AJL added
+                "early_vill_access_road",
+                "early_clean_water"  )
+
+housing <- c( "early_house_type___traditional",
+               "early_house_type___stone",
+               "early_house_type___wood")
+
+# Define the variable groups and their colors
+variable_groups <- list(
+  parent_occupation = parent_occupation,
+  hh_item = hh_item,
+  diet = diet,
+  early_misc = early_misc,
+  housing = housing
+)
+
+group_colors <- c("#5495CFFF", "#F5AF4DFF", "#DB4743FF", "#7C873EFF", "#FEF4D5FF")
+group_labels <- c("Parent Occupation", "Household Items", "Diet", "Miscellaneous Environment", "Housing")
+
+# List of variables to check for completeness
+variables_to_check <- c(parent_occupation, diet, housing, early_misc, hh_item)
+
+dim(OA_data)
+# which variables have missing data
+apply( OA_data[,variables_to_check] ,2,function(x) length(which(is.na(x))) )
+# how many variables are missing for a given person
+x<-(apply( OA_data[,variables_to_check] ,1,function(x) length(which(is.na(x))) ))
+table(x)
+
+# Remove observations with missing data for variables_to_check (allow 1 missing data point)
+OA_data_complete <- OA_data[which(x<2), variables_to_check]
+dim(OA_data_complete)
+OA_data_complete_imputed <- complete(mice(OA_data_complete, method ="lasso.norm"))
+
+# Perform PCA
+pca_result <- prcomp(OA_data_complete_imputed, center = TRUE, scale. = TRUE)
+
+# Display PCA results
+s <- summary(pca_result)
+dat <- data.frame(
+  component = factor(1:length(s$sdev), labels=paste0("PC", 1:length(s$sdev))),
+  var_explained = s$sdev^2/sum(s$sdev^2)
+)
+ggplot(dat[1:10,], aes(y=var_explained)) + 
+  geom_line(aes(x=component, group=1)) + 
+  geom_point(aes(x=component)) + 
+  theme_bw(13) + 
+  ylab('Percent variance explained')
+
+# Extract the PC scores
+OA_data$Early_urban_PC1<-NA
+OA_data$Early_urban_PC1[which(x<2)]<-pca_result$x[,1]
+OA_data$Early_urban_PC2<-NA
+OA_data$Early_urban_PC2[which(x<2)]<-pca_result$x[,2]
+
+# add current urbanicity
+Urbanicity <-unique(Urbanicity[, c("village_id","urb_score")])
+Urbanicity <-Urbanicity[complete.cases(Urbanicity),]
+OA_data2 <- left_join(OA_data, Urbanicity[, c("village_id","urb_score")], by = "village_id")
+
+# keep these data
+#write.table(OA_data2,'~/vandy/early_life/github_17apr25/18apr25_OA_merged.txt',quote=F,row.names=F,sep='\t')
+```
+
+
+
+
+
+new script
+------------------------------------------------------------------------------------------------------------
+
+from (accre) ~/el_tmp/fixing_stuff_28apr25.Rmd
+```{r}
+library(readr)
+library(dplyr)
+library(magrittr)
+library(EMMREML)
+```
+
+
+```{r}
+dat=read.delim('~/el_tmp/18apr25_OA_merged.txt')
+v=readRDS('~/el_tmp/17apr25_voomWithQualityWeights_normalized.rds')
+rnaseq_meta=read.delim('~/el_tmp/meta_cell_18apr25.txt', sep = ' ')
+```
+
+making h_sol 
+----------------------------------------
+
+checking to see how much info is missing 
+```{r}
+vars_need=dat %>% dplyr::select(rid, wage_past_month, where_poop___toilet, where_poop___river_lake, where_poop___forest, where_poop___latrine, where_poop___field ,electricity_resid, electricity_resid_source___power_lines, hh_item___tv, hh_item___smart_phone, highest_education_stage, vill_access_by___car, vill_access_by___truck, vill_access_by___boat, vill_access_by___none, vill_access_by___moto, house_type, water_source___filter, water_source___other, water_source___river_lake, water_source___well)
+
+skimr::skim(vars_need)
+
+vars_need$NA_count <- rowSums(is.na(vars_need))
+
+hist(vars_need$NA_count)
+
+columns_of_interest = colnames(vars_need)[2:22]
+
+#df_filtered <- dat %>% filter(if_all(all_of(columns_of_interest), ~ !is.na(.x))) #1177
+df_filtered <- dat %>% filter(rowSums(is.na(across(all_of(columns_of_interest)))) < 10) #1193
+```
+
+
+
+
+```{r}
+df_filtered$water_source___gov_tap <- 0
+df_filtered[which(df_filtered$water_source___filter==0 & df_filtered$water_source___river_lake==0 & df_filtered$water_source___well==0),]$water_source___gov_tap <- 1
+
+df_filtered <- df_filtered %>% 
+  mutate(
+    highest_where_poop = dplyr::case_when(
+      where_poop___toilet == 1 ~ 1,
+      where_poop___latrine == 1 ~ 0.5,
+      where_poop___field == 1 ~ 0,
+      where_poop___forest == 1 ~ 0,
+      where_poop___river_lake == 1 ~ 0,
+      TRUE ~ NA_real_),
+    house_type_score = dplyr::case_when(
+      house_type == "concrete" ~ 1,
+      house_type == "wood" ~ 1,
+      house_type == "traditional" ~ 0,
+      TRUE ~ NA_real_),
+    water_source_score = dplyr::case_when(
+      water_source___filter == 1 ~ 1,
+      water_source___well == 1 ~ 1,
+      water_source___gov_tap == 1 ~ 1,
+      water_source___river_lake == 1 ~ 0,
+      TRUE ~ NA_real_))
+
+
+##scaled 
+df_filtered <- df_filtered %>% 
+  rowwise() %>%
+  mutate(h_sol = (sum(c(house_type_score, house_type_score,
+                        water_source_score, highest_where_poop,
+                        electricity_resid), na.rm = TRUE))/
+           (sum(!is.na(c(house_type_score, house_type_score,
+                         water_source_score, highest_where_poop,
+                         electricity_resid))))) %>%
+  ungroup()
+
+
+##unscaled 
+df_filtered <- df_filtered %>% 
+    rowwise() %>%
+    mutate(h_sol2 = (sum(c(house_type_score, house_type_score,
+                          water_source_score, highest_where_poop,
+                          electricity_resid), na.rm = TRUE))) %>% ungroup()
+
+hist(df_filtered$h_sol)
+hist(df_filtered$h_sol2)
+```
+join with rnaseq metadata
+```{r}
+#df_filtered$sample_name <- paste0("X", df_filtered$tid)
+df_filtered$monocytes_perc_combine<-df_filtered$monocytes_perc
+df_filtered$monocytes_perc_combine[which(is.na(df_filtered$monocytes_perc))]<-df_filtered$monocytes_perc_manual[which(is.na(df_filtered$monocytes_perc))]
+df_filtered$lympho_perc_combine<-df_filtered$lymphocytes_perc
+df_filtered$lympho_perc_combine[which(is.na(df_filtered$lymphocytes_perc))]<-df_filtered$lymphocytes_perc_manual[which(is.na(df_filtered$lymphocytes_perc))]
+df_filtered$lympho_perc_combine[which(is.na(df_filtered$lympho_perc_combine))]<-mean(df_filtered$lympho_perc_combine,na.rm=T)
+df_filtered$monocytes_perc_combine[which(is.na(df_filtered$monocytes_perc_combine))]<-mean(df_filtered$monocytes_perc_combine,na.rm=T)
+
+df_filtered %<>% dplyr::select(rid, urb_score, Early_urban_PC1, age, h_sol, h_sol2, monocytes_perc_combine, lympho_perc_combine)
+rnaseq_meta %<>% dplyr::select(-age, -PC1_cell, -PC2_cell)
+dat2 = merge(rnaseq_meta, df_filtered, by="rid") #962
+```
+
+regress out batch effects
+```{r}
+#dat2<-subset(dat2,!is.na(age) & !is.na(h_sol) & !is.na(sex_medical) & !is.na(Early_urban_PC1)) #915
+dat2<-subset(dat2,!is.na(age) & !is.na(h_sol) & !is.na(sex_medical)) #962
+dat2 <- subset(dat2, sex_medical == rnaseq_sex) #943
+
+dat2 <- subset(dat2, age>=17.5) #926
+
+dat2$age_scale<-as.numeric(scale(dat2$age))
+dat2$h_sol_scale<-as.numeric(scale(dat2$h_sol))
+#dat2$Early_urban_PC1_scale<-as.numeric(scale(dat2$Early_urban_PC1))
+
+v2=v[,dat2$sample_name]
+identical(dat2$sample_name,colnames(v2))
+
+design = model.matrix(~as.factor(dat2$batch) + dat2$Uniquely.mapped.reads + dat2$monocytes_perc_combine + dat2$lympho_perc_combine)
+fit <-lmFit(v2,design)
+fit <- eBayes(fit)
+exp<-residuals.MArrayLM(object=fit, v2)
+```
+
+
+seeing who's really related 
+```{r}
+OApbmcKinshipdata <- readRDS("~/el_tmp/OApbmcKinshipdata.rds")
+colnames(OApbmcKinshipdata) <- paste0("X", colnames(OApbmcKinshipdata))
+rownames(OApbmcKinshipdata) <- paste0("X", rownames(OApbmcKinshipdata))
+dat2 %<>% filter(sample_name %in% colnames(OApbmcKinshipdata)) #923
+K = OApbmcKinshipdata[dat2$sample_name,dat2$sample_name]
+
+rel_long <- as.data.frame(as.table(as.matrix(K)))
+colnames(rel_long) <- c("ID1", "ID2", "Kinship")
+close_pairs <- rel_long %>%
+  filter(Kinship > 0.175, ID1 != ID2) %>%
+  rowwise() %>%
+  mutate(pair = paste(sort(c(ID1, ID2)), collapse = "_")) %>%
+  ungroup() %>%
+  distinct(pair, .keep_all = TRUE) %>%
+  select(ID1, ID2, Kinship)
+
+length(unique(close_pairs$ID1))
+length(unique(close_pairs$ID2))
+```
+
+
+read in relatedness pca
+```{r}
+eigenvecOApbmcs <- read_csv("~/el_tmp/eigenvecOApbmcs.csv")
+eigenvecOApbmcs %<>% dplyr::select(sample_name, PC1, PC2)
+dat3 = merge(dat2, eigenvecOApbmcs, by="sample_name") #910 #meta_910_13may25
+K = OApbmcKinshipdata[dat3$sample_name,dat3$sample_name]
+```
+
+
+```{r}
+exp_filt=exp[,dat3$sample_name]
+```
+
+
+
+filter for early life models 
+-----------------------------------------------------------------------
+```{r}
+dat4<-subset(dat3,!is.na(Early_urban_PC1)) #meta_894_13may25
+Early_urban_PC1_scale = as.numeric(scale(dat4$Early_urban_PC1))
+K = K[dat4$sample_name,dat4$sample_name]
+exp_filt=exp_filt[,dat4$sample_name]
+dim(dat4)
+dim(K)
+dim(exp_filt)
+```
+
+
