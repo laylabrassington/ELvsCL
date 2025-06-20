@@ -1,7 +1,7 @@
 ---
 title: "ancestry_ge_model_clean_19june25"
 output: html_document
-date: "2025-06-19"
+date: "2025-06-20"
 ---
 
 
@@ -24,9 +24,9 @@ rm(list = ls())
 
 
 ```{r}
-meta = readRDS("~/vandy/early_life/meta_6june25.rds")
-K = readRDS("~/vandy/early_life/K_el_28may25.rds")
-exp = readRDS("~/vandy/early_life/exp_el_28may25.rds")
+meta = readRDS("~/vandy/early_life/meta_final.rds")
+K = readRDS("~/vandy/early_life/K.rds")
+exp = readRDS("~/vandy/early_life/exp.rds")
 ```
 
 
@@ -82,9 +82,9 @@ rm(list = ls())
 
 
 ```{r}
-meta = readRDS("~/vandy/early_life/meta_6june25.rds")
-K = readRDS("~/vandy/early_life/K_el_28may25.rds")
-exp = readRDS("~/vandy/early_life/exp_el_28may25.rds")
+meta = readRDS("~/vandy/early_life/meta_final.rds")
+K = readRDS("~/vandy/early_life/K.rds")
+exp = readRDS("~/vandy/early_life/exp.rds")
 ```
 
 
@@ -140,9 +140,9 @@ rm(list = ls())
 
 
 ```{r}
-meta = readRDS("~/vandy/early_life/meta_6june25.rds")
-K = readRDS("~/vandy/early_life/K_el_28may25.rds")
-exp = readRDS("~/vandy/early_life/exp_el_28may25.rds")
+meta = readRDS("~/vandy/early_life/meta_final.rds")
+K = readRDS("~/vandy/early_life/K.rds")
+exp = readRDS("~/vandy/early_life/exp.rds")
 ```
 
 
@@ -197,9 +197,9 @@ rm(list = ls())
 
 
 ```{r}
-meta = readRDS("~/vandy/early_life/meta_6june25.rds")
-K = readRDS("~/vandy/early_life/K_el_28may25.rds")
-exp = readRDS("~/vandy/early_life/exp_el_28may25.rds")
+meta = readRDS("~/vandy/early_life/meta_final.rds")
+K = readRDS("~/vandy/early_life/K.rds")
+exp = readRDS("~/vandy/early_life/exp.rds")
 ```
 
 ```{r}
