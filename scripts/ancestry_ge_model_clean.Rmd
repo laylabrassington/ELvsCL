@@ -1,5 +1,5 @@
 ---
-title: "ancestry_ge_model_clean_19june25"
+title: "ancestry_ge_model_clean"
 output: html_document
 date: "2025-06-20"
 ---
