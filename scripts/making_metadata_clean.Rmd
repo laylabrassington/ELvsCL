@@ -207,6 +207,17 @@ meta_cell = left_join(meta, cell_pcs, by="sample_name")
 #write.table(meta_cell, "~/vandy/early_life/meta_cell_18apr25.txt")
 ```
 
+how things were saved when code was originally ran 
+```{r}
+# write.table(v$E,'21Mar24_voomWithQualityWeights_normalized.txt',row.names=F,sep='\t')
+# write.table(v$E,'21Mar24_voom_normalized.txt',row.names=F,sep='\t')
+#write.table(names,'21Mar24_metadata.txt',row.names=F,sep='\t')
+#write.table(rownames(counts4),'25Nov24_genes.txt',row.names=F,sep='\t')
+#saveRDS(v,file='~/vandy/early_life/17apr25_voom_normalized.rds')
+#saveRDS(v,file='~/vandy/early_life/17apr25_voomWithQualityWeights_normalized.rds')
+```
+
+
 ### voom norm and save 
 ```{r}
 dge <- DGEList(counts=counts4)
