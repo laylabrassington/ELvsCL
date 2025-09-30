@@ -1,7 +1,7 @@
 ---
 title: "el_cl_plotting"
 author: "layla"
-date: "2025-09-29"
+date: "2025-09-30"
 output: html_document
 ---
 
@@ -21,6 +21,9 @@ library(igraph)
 library(ggraph)
 library(clusterProfiler)
 library(org.Hs.eg.db)
+library(enrichplot)
+organism = "org.Hs.eg.db"
+library(organism, character.only = TRUE)
 library(ggrepel)
 library(purrr)
 library(broom)
@@ -33,167 +36,20 @@ library(colorspace)
 ```
 
 
-
-variance partitioning code 
------------------------------------------------
-```{r eval=FALSE}
-model_out = readRDS("model_out_all_24june25.rds")
-model_out$sen_urb = model_out$`sen_beta_as.numeric(scale(meta$urb_score.y))`
-model_out$sem_urb = model_out$`sem_beta_as.numeric(scale(meta$urb_score.y))`
-model_out$pm_urb = model_out$`pm_beta_as.numeric(scale(meta$urb_score.y))`
-
-model_out$sen_early = model_out$`sen_beta_as.numeric(scale(meta$Early_urban_PC1))`
-model_out$sem_early = model_out$`sem_beta_as.numeric(scale(meta$Early_urban_PC1))`
-model_out$pm_early = model_out$`pm_beta_as.numeric(scale(meta$Early_urban_PC1))`
-
-model_out$every_urb = model_out$`every_beta_as.numeric(scale(meta$urb_score.y))`
-model_out$every_early = model_out$`every_beta_as.numeric(scale(meta$Early_urban_PC1))`
-model_out$every_age = model_out$every_beta_age_scale
-model_out$every_sex = model_out$every_beta_sex_medicalmale
-model_out$padj_urb = p.adjust(model_out$`every_p_value_as.numeric(scale(meta$urb_score.y))`, method = "fdr")
-model_out$padj_early = p.adjust(model_out$`every_p_value_as.numeric(scale(meta$Early_urban_PC1))`, method = "fdr")
-subset = model_out %>% filter(padj_urb<0.1)
-dim(subset %>% filter(apply(dplyr::select(., every_urb, sen_urb, sem_urb, pm_urb), 1, function(x) all(x > 0) || all(x < 0))))
-urb_genes = subset %>% filter(apply(dplyr::select(., every_urb, sen_urb, sem_urb, pm_urb), 1, function(x) all(x > 0) || all(x < 0)))
-
-subset = model_out %>% filter(padj_early<0.1)
-dim(subset %>% filter(apply(dplyr::select(., every_early, sen_early, sem_early, pm_early), 1, function(x) all(x > 0) || all(x < 0))))
-early_genes = subset %>% filter(apply(dplyr::select(., every_early, sen_early, sem_early, pm_early), 1, function(x) all(x > 0) || all(x < 0)))
-
-gene_list = c(urb_genes$gene, early_genes$gene)
-gene_list=gene_list[!duplicated(gene_list)]
-
-geneExpr <- readRDS("exp.rds")
-
-info <- readRDS("meta_final.rds")
-info %<>% select(urb_score.y, Early_urban_PC1, age_scale, sex_medical, sample_name)
-rownames(info)=info$sample_name
-
-info$urb_score.y = as.numeric(scale(info$urb_score.y))
-info$Early_urban_PC1 = as.numeric(scale(info$Early_urban_PC1))
-info$sex_medical = ifelse(info$sex_medical=="female", 0, 1)
-
-all(rownames(info) == colnames(geneExpr)) 
-
-form <- ~ urb_score.y + Early_urban_PC1 + age_scale + sex_medical 
-
-varPart <- variancePartition::fitExtractVarPartModel(geneExpr, form, info)
-```
-
-
+age and sex plot 
+-------------------------------------
 ```{r}
-varPart = readRDS('varPart_29sep25.rds')
-```
-
-
-*don;t forget to make gene_list from the above code chunk 
-```{r}
-#across all genes 
-colMeans(varPart) * 100
-#colSums(varPart) 
-
-#across either early or current life assocated genes 
-varPart_filt = varPart[gene_list,]
-colMeans(varPart_filt) * 100
-#colSums(varPart_filt) 
+meta <- readRDS("meta_final.rds")
 ```
 
 ```{r}
-vp <- sortCols(varPart_filt)
-p = plotVarPart(vp[,c(1:4)])
-p + ylim(0, 16)
-```
+meta %>% ggplot(aes(x=age, fill=rnaseq_sex)) + geom_density(alpha=0.8) + theme_bw(base_size = 20) + scale_fill_manual(values = c("black","goldenrod2")) + labs(x = "Age", y="Density", fill="Sex")
 
-
-```{r}
-geneExpr_filt = geneExpr[gene_list,]
-```
-
-```{r}
-#varPart2 <- variancePartition::fitExtractVarPartModel(geneExpr_filt, form, info)
-varPart2 = readRDS('varPart2_29sep25.rds')
-```
-
-
-```{r}
-colMeans(varPart2) * 100
-```
-
-
-built dplyr/ggplot versions of variancePartition functions so they run in earlier versions of R 
-```{r}
-sortCols_dplyr <- function(df, 
-                           FUN = median, 
-                           decreasing = TRUE,
-                           last = c("Residuals", "Measurement.error")) {
-  
-  # compute summary per column
-  col_stats <- df %>% 
-    summarise(across(everything(), ~ FUN(.x, na.rm = TRUE))) %>% 
-    tidyr::pivot_longer(everything(), names_to = "col", values_to = "stat")
-  
-  # order by stat
-  ordered_cols <- col_stats %>% 
-    arrange(if (decreasing) desc(stat) else stat) %>% 
-    pull(col)
-  
-  # move "last" columns to the end
-  ordered_cols <- c(setdiff(ordered_cols, last), intersect(last, names(df)))
-  
-  # reorder the df
-  df %>% select(all_of(ordered_cols))
-}
-
-```
-
-
-```{r}
-plotVarPart_dplyr <- function(obj,
-                              col = c(scales::hue_pal()(ncol(obj) - 1), "grey85"),
-                              label.angle = 20,
-                              main = "",
-                              ylab = "",
-                              convertToPercent = TRUE) {
-  # reshape to long format
-  df_long <- obj %>%
-    tibble::rownames_to_column("feature") %>%
-    tidyr::pivot_longer(-feature, names_to = "source", values_to = "value")
-  
-  # convert to percent if requested
-  if (convertToPercent) {
-    df_long <- df_long %>%
-      mutate(value = value * 100)
-  }
-  
-  # violin + boxplot overlay
-  p <- ggplot(df_long, aes(x = source, y = value, fill = source)) +
-    geom_violin(trim = TRUE, scale = "width") +
-    geom_boxplot(width = 0.1, outlier.shape = NA, alpha = 0.7, color = "black") +
-    scale_fill_manual(values = col) +
-    labs(title = main, y = ylab, x = "") +
-    theme_bw() +
-    theme(
-      axis.text.x = element_text(angle = label.angle, hjust = 1),
-      legend.position = "none"
-    )
-  
-  return(p)
-}
+#L 8x5
 ```
 
 
 
-```{r}
-vp2 <- sortCols_dplyr(varPart2)
-p = plotVarPart_dplyr(vp2[,c(1:4)])
-p + ylim(0, 16)
-
-p = plotVarPart_dplyr(vp2[,c(1:2)])
-p + ylim(0, 16) + scale_fill_manual(values=c("darkgreen", "steelblue"))
-
-p = plotVarPart_dplyr(vp2[,c(1:4)])
-p + ylim(0, 16) + scale_fill_manual(values=c("darkgreen", "steelblue", "orange", "orchid4"))
-```
 
 
 
@@ -663,6 +519,16 @@ ggplot(top5_df, aes(x = type, y = TF, fill = type)) +
 
 #L 5x5
 ```
+```{r}
+ggplot(top5_df, aes(x = type, y = TF, fill = type, alpha = fold_enrichment)) +
+  geom_tile(color = "white", width = 0.9, height = 0.9) +
+  scale_fill_manual(
+    values = c("darkolivegreen", "darkolivegreen3", "dodgerblue3", "skyblue2")) +
+  scale_alpha_continuous(range = c(0.5, 1), name = "Fold Enrichment") +
+  theme_minimal() +
+  labs(title = "Top 5 TFs per Category", x = "Type", y = "Transcription Factor") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), panel.grid = element_blank())
+```
 
 
 
@@ -768,6 +634,68 @@ ggplot(nfkb_annot, aes(x = type, y = gene)) +
   theme(axis.text.y = element_text(size = 6))
 ```
 
+block style 
+```{r}
+ggplot(nfkb_df, aes(x = type, y = gene, fill = type)) +
+  geom_tile(color = "white", width = 0.9, height = 0.9) +
+  scale_fill_manual(values = c(
+    "current_rural" = "darkolivegreen",
+    "current_urb"   = "darkolivegreen3",
+    "early_rural"   = "dodgerblue3",
+    "early_urb"     = "skyblue2")) +
+  theme_minimal() +
+  labs(title = "Genes regulated by NFKB1_RELA", x = "Category", y = "Gene") +
+  theme(axis.text.y = element_text(size = 6))
+
+#p 5x5 
+```
+
+addinging heirarchial clustering 
+```{r}
+nfkb_df <- bind_rows(
+  current_urb  %>% filter(gene %in% nfkb_targets)  %>% transmute(gene, type = "current_urb",  beta = every_urb),
+  current_rural %>% filter(gene %in% nfkb_targets) %>% transmute(gene, type = "current_rural", beta = every_urb),
+  early_urb   %>% filter(gene %in% nfkb_targets)   %>% transmute(gene, type = "early_urb",   beta = every_early),
+  early_rural %>% filter(gene %in% nfkb_targets)   %>% transmute(gene, type = "early_rural", beta = every_early))
+```
+
+```{r}
+mat <- nfkb_df %>%
+  tidyr::pivot_wider(names_from = type, values_from = beta, values_fill = 0) %>%
+  column_to_rownames("gene")
+
+# cluster rows (genes) and columns (categories)
+row_order <- hclust(dist(mat))$order
+col_order <- hclust(dist(t(mat)))$order
+
+# apply ordering
+nfkb_df$gene <- factor(nfkb_df$gene, levels = rownames(mat)[row_order])
+nfkb_df$type <- factor(nfkb_df$type, levels = colnames(mat)[col_order])
+
+# plot
+ggplot(nfkb_df, aes(x = type, y = gene, fill = type, alpha = beta)) +
+  geom_tile(color = "white", width = 0.9, height = 0.9) +
+  scale_fill_manual(values = c(
+    "current_rural" = "darkolivegreen",
+    "current_urb"   = "darkolivegreen3",
+    "early_rural"   = "dodgerblue3",
+    "early_urb"     = "skyblue2")) + 
+  scale_alpha_continuous(range = c(0.6, 1), name = "Effect Size") +
+  theme_minimal() +
+  labs(title = "NFKB1_RELA Targets (clustered)", x = "Category", y = "Gene") +
+  theme(axis.text.y = element_text(size = 6))
+
+
+ggplot(nfkb_df, aes(x = type, y = gene, fill = type)) +
+  geom_tile(color = "white", width = 0.9, height = 0.9) +
+  scale_fill_manual(values = c(
+    "current_rural" = "darkolivegreen",
+    "current_urb"   = "darkolivegreen3",
+    "early_rural"   = "dodgerblue3",
+    "early_urb"     = "skyblue2")) + 
+  theme_minimal(base_size = 20) +
+  labs(title = "NFKB1_RELA Targets (clustered)", x = "Category", y = "Gene")
+```
 
 
 urb rural enrich plot 
@@ -781,26 +709,18 @@ rm(list = ls())
 set.seed(24)
 ```
 
-
 read in model results 
 ```{r}
 model_out <- readRDS("model_out_all_24june25.rds")
-```
 
-```{r}
 model_out$every_urb = model_out$`every_beta_as.numeric(scale(meta$urb_score.y))`
 model_out$every_early = model_out$`every_beta_as.numeric(scale(meta$Early_urban_PC1))`
 model_out$every_age = model_out$every_beta_age_scale
 model_out$every_sex = model_out$every_beta_sex_medicalmale
-```
 
-```{r}
 model_out$padj_urb = p.adjust(model_out$`every_p_value_as.numeric(scale(meta$urb_score.y))`, method = "fdr")
 model_out$padj_early = p.adjust(model_out$`every_p_value_as.numeric(scale(meta$Early_urban_PC1))`, method = "fdr")
-```
 
-
-```{r}
 subset = model_out %>% filter(padj_urb<0.1)
 dim(subset %>% filter(apply(dplyr::select(., every_urb, `sem_beta_as.numeric(scale(meta$urb_score.y))`, `sen_beta_as.numeric(scale(meta$urb_score.y))`, `pm_beta_as.numeric(scale(meta$urb_score.y))`), 1, function(x) all(x > 0) || all(x < 0))))
 urb_genes = subset %>% filter(apply(dplyr::select(., every_urb, `sem_beta_as.numeric(scale(meta$urb_score.y))`, `sen_beta_as.numeric(scale(meta$urb_score.y))`, `pm_beta_as.numeric(scale(meta$urb_score.y))`), 1, function(x) all(x > 0) || all(x < 0)))
@@ -811,427 +731,399 @@ early_genes = subset %>% filter(apply(dplyr::select(., every_early, `sem_beta_as
 ```
 
 
-code using gseGO() and all genes ranked by a continuous score (previous enrichment used enrichGO())
-```{r eval=FALSE}
-#get current life ranked gene list
-ranks <- urb_genes$every_urb
-names(ranks) <- urb_genes$gene
-ranks <- sort(ranks, decreasing = TRUE)
+CL urban, background (all genes), test (all CL urban genes)
+```{r}
+test= subset(urb_genes, urb_genes$every_urb>0)$gene
+back<-model_out$gene
 
-gsea_res <- gseGO(
-  geneList     = ranks,
-  OrgDb        = org.Hs.eg.db,
-  ont          = "BP",
-  keyType      = "SYMBOL",
-  minGSSize    = 10,
-  maxGSSize    = 500,
-  pvalueCutoff = 1,
-  verbose      = FALSE)
+GO <- enrichGO(gene = test,
+                      universe = back,
+                      OrgDb = org.Hs.eg.db,
+                      ont  = "BP", keyType = "SYMBOL",
+                      pAdjustMethod = "none",
+                      qvalueCutoff  = 1,minGSSize = 5, maxGSSize = 500,
+                      readable = TRUE)
 
-df <- as.data.frame(gsea_res@result)
+filtered_df <- GO@result[GO@result$p.adjust < 0.1, ]
 
-# keep significant terms
-df <- df %>% filter(p.adjust < 0.1)
-
-#NES > 0 → Urban
-#NES < 0 → Rural
-
-df <- df %>% mutate(Group = ifelse(NES > 0, "Urban", "Rural"))
-
-df <- df %>%
-  arrange(NES) %>%
-  mutate(Description_clean = stringr::str_replace_all(Description, " process", ""),
-         Description_clean = factor(Description_clean, levels = unique(Description_clean)))
-
-#filter top 5 Urban (positive NES) and top 5 Rural (negative NES)
-df_top <- df %>%
-  filter(p.adjust < 0.05) %>%
-  arrange(desc(NES)) %>%
-  slice_head(n = 5) %>%
-  bind_rows(
-    df %>%
-      filter(p.adjust < 0.05) %>%
-      arrange(NES) %>%
-      slice_head(n = 5))
-
-df_top <- df_top %>%
-  mutate(Description_clean = stringr::str_replace_all(Description, " process", ""))
-
-df_top <- df_top %>%
-  arrange(NES) %>%
-  mutate(Description_clean = factor(Description_clean, levels = Description_clean))
-
-ggplot(df_top, aes(x = Description_clean, y = 0)) +
-    geom_point(aes(size = setSize, color = NES)) +
-    scale_size(range = c(3, 12)) +
-    scale_color_gradient2(
-        low = "#17154FFF", mid = "white", high = "#D95E31FF", midpoint = 0) +
-    theme_minimal() +
-    theme(
-        axis.text.y = element_blank(),
-        axis.ticks.y = element_blank(),
-        axis.title.y = element_blank(),
-        axis.text.x = element_text(angle = 45, hjust = 1, size = 20),
-        panel.grid = element_blank(), 
-        plot.margin = margin(t = 20, r = 20, b = 50, l = 20)) +
-    labs(
-        x = NULL, y = NULL,
-        size = "Gene set size", color = "NES")
-
-ggsave("~/Desktop/CL_NES_dotplot.png", width = 6, height = 7, dpi = 300)
-
-#get early life ranked gene list 
-ranks <- early_genes$every_early
-names(ranks) <- early_genes$gene
-ranks <- sort(ranks, decreasing = TRUE)
-
-gsea_res <- gseGO(
-  geneList     = ranks,
-  OrgDb        = org.Hs.eg.db,
-  ont          = "BP",
-  keyType      = "SYMBOL",
-  minGSSize    = 10,
-  maxGSSize    = 500,
-  pvalueCutoff = 1,
-  verbose      = FALSE)
-
-df <- as.data.frame(gsea_res@result)
-
-# keep significant terms (not enough)
-#df <- df %>% filter(p.adjust < 0.1)
-
-#NES > 0 → Urban
-#NES < 0 → Rural
-df <- df %>% mutate(Group = ifelse(NES > 0, "Urban", "Rural"))
-
-df <- df %>%
-  arrange(NES) %>%
-  mutate(Description_clean = stringr::str_replace_all(Description, " process", ""),
-         Description_clean = factor(Description_clean, levels = unique(Description_clean)))
-
-#filter top 5 Urban (positive NES) and top 5 Rural (negative NES)
-df_top <- df %>%
-  arrange(desc(NES)) %>%
-  slice_head(n = 5) %>%
-  bind_rows(
-    df %>%
-      arrange(NES) %>%
-      slice_head(n = 5))
-
-df_top <- df_top %>%
-  mutate(Description_clean = stringr::str_replace_all(Description, " process", ""))
-
-df_top <- df_top %>%
-  arrange(NES) %>%
-  mutate(Description_clean = factor(Description_clean, levels = Description_clean))
-
-ggplot(df_top, aes(x = Description_clean, y = 0)) +
-    geom_point(aes(size = setSize, color = NES)) +
-    scale_size(range = c(3, 12)) +
-    scale_color_gradient2(
-        low = "#17154FFF", mid = "white", high = "#D95E31FF", midpoint = 0) +
-    theme_minimal() +
-    theme(
-        axis.text.y = element_blank(),
-        axis.ticks.y = element_blank(),
-        axis.title.y = element_blank(),
-        axis.text.x = element_text(angle = 45, hjust = 1, size = 20),
-        panel.grid = element_blank(), 
-        plot.margin = margin(t = 20, r = 20, b = 50, l = 20)) +
-    labs(
-        x = NULL, y = NULL,
-        size = "Gene set size", color = "NES")
-
-ggsave("~/Desktop/EL_NES_dotplot.png", width = 6, height = 7, dpi = 300)
+filtered_urban <- new("enrichResult",
+                          result = filtered_df,
+                          pvalueCutoff = 1,
+                          pAdjustMethod = "BH",
+                          qvalueCutoff = 1,
+                          organism = "UNKNOWN", 
+                          ontology = "BP",
+                          gene = GO@gene,
+                          universe = GO@universe,
+                          geneSets = GO@geneSets,
+                          keytype = "UNKNOWN",  
+                          readable = TRUE)
+edo <- pairwise_termsim(filtered_urban)
+dotplot(filtered_urban, showCategory=10, font.size=10)
 ```
 
 
-function to run GSEA + enrichGO side by side
+CL rural, background (all genes), test (all CL rural genes)
 ```{r}
-run_GO_dual <- function(genes_df, score_col, orgdb = org.Hs.eg.db,
-                        ont = "BP", keyType = "SYMBOL",
-                        minGSSize = 10, maxGSSize = 500,
-                        p_cutoff = 0.1) {
-  
-  # --- ranked list for GSEA ---
-  ranks <- genes_df[[score_col]]
-  names(ranks) <- genes_df$gene
-  ranks <- sort(ranks, decreasing = TRUE)
-  
-  # --- GSEA ---
-  gsea_res <- gseGO(
-    geneList     = ranks,
-    OrgDb        = orgdb,
-    ont          = ont,
-    keyType      = keyType,
-    minGSSize    = minGSSize,
-    maxGSSize    = maxGSSize,
-    pvalueCutoff = 1,
-    verbose      = FALSE
-  )
-  
-  gsea_df <- as.data.frame(gsea_res@result) %>%
-    filter(p.adjust < p_cutoff) %>%
-    mutate(method = "GSEA",
-           Group = ifelse(NES > 0, "Urban", "Rural"),
-           Description_clean = stringr::str_replace_all(Description, " process", ""))
-  
-  # --- ORA (split into pos/neg subsets like your second code) ---
-  pos_genes <- genes_df %>% filter(.data[[score_col]] > 0) %>% pull(gene)
-  neg_genes <- genes_df %>% filter(.data[[score_col]] < 0) %>% pull(gene)
-  universe   <- genes_df$gene
-  
-  run_enrich <- function(gset, label) {
-    enrichGO(
-      gene     = gset,
-      universe = universe,
-      OrgDb    = orgdb,
-      ont      = ont,
-      keyType  = keyType,
-      pAdjustMethod = "BH",
-      qvalueCutoff  = 1,
-      minGSSize     = minGSSize,
-      maxGSSize     = maxGSSize,
-      readable      = TRUE
-    )@result %>%
-      filter(p.adjust < p_cutoff) %>%
-      mutate(method = "ORA",
-             Group = label,
-             NES = NA_real_,  # ORA doesn’t compute NES
-             Description_clean = stringr::str_replace_all(Description, " process", ""))
-  }
-  
-  ora_pos <- run_enrich(pos_genes, "Urban")
-  ora_neg <- run_enrich(neg_genes, "Rural")
-  
-  # --- combine results ---
-  bind_rows(gsea_df, ora_pos, ora_neg)
-}
+test= subset(urb_genes, urb_genes$every_urb<0)$gene
+back<-model_out$gene
+
+GO <- enrichGO(gene = test,
+                      universe = back,
+                      OrgDb = org.Hs.eg.db,
+                      ont  = "BP", keyType = "SYMBOL",
+                      pAdjustMethod = "none",
+                      qvalueCutoff  = 1,minGSSize = 5, maxGSSize = 500,
+                      readable = TRUE)
+
+filtered_df <- GO@result[GO@result$p.adjust < 0.1, ]
+
+filtered_rural <- new("enrichResult",
+                          result = filtered_df,
+                          pvalueCutoff = 1,
+                          pAdjustMethod = "BH",
+                          qvalueCutoff = 1,
+                          organism = "UNKNOWN", 
+                          ontology = "BP",
+                          gene = GO@gene,
+                          universe = GO@universe,
+                          geneSets = GO@geneSets,
+                          keytype = "UNKNOWN",  
+                          readable = TRUE)
+edo <- pairwise_termsim(filtered_rural)
+dotplot(filtered_rural, showCategory=10, font.size=10)
 ```
 
 
+CL urban, background (all genes), test (significant CL urban genes)
 ```{r}
-# For current life (urb_genes)
-res_urb <- run_GO_dual(urb_genes, "every_urb")
+test= subset(model_out, model_out$padj_urb<0.1 & model_out$every_urb>0)$gene
+back<-model_out$gene
 
-# For early life (early_genes)
-res_early <- run_GO_dual(early_genes, "every_early")
+GO <- enrichGO(gene = test,
+                      universe = back,
+                      OrgDb = org.Hs.eg.db,
+                      ont  = "BP", keyType = "SYMBOL",
+                      pAdjustMethod = "none",
+                      qvalueCutoff  = 1,minGSSize = 5, maxGSSize = 500,
+                      readable = TRUE)
+
+filtered_df <- GO@result[GO@result$p.adjust < 0.1, ]
+
+filtered_urban <- new("enrichResult",
+                          result = filtered_df,
+                          pvalueCutoff = 1,
+                          pAdjustMethod = "BH",
+                          qvalueCutoff = 1,
+                          organism = "UNKNOWN", 
+                          ontology = "BP",
+                          gene = GO@gene,
+                          universe = GO@universe,
+                          geneSets = GO@geneSets,
+                          keytype = "UNKNOWN",  
+                          readable = TRUE)
+edo <- pairwise_termsim(filtered_urban)
+dotplot(filtered_urban, showCategory=10, font.size=10)
+```
+
+
+
+
+CL rural, background (all genes), test (significant CL rural genes)
+```{r}
+test= subset(model_out, model_out$padj_urb<0.1 & model_out$every_urb<0)$gene
+back<-model_out$gene
+
+GO <- enrichGO(gene = test,
+                      universe = back,
+                      OrgDb = org.Hs.eg.db,
+                      ont  = "BP", keyType = "SYMBOL",
+                      pAdjustMethod = "none",
+                      qvalueCutoff  = 1,minGSSize = 5, maxGSSize = 500,
+                      readable = TRUE)
+
+filtered_df <- GO@result[GO@result$p.adjust < 0.1, ]
+
+filtered_rural <- new("enrichResult",
+                          result = filtered_df,
+                          pvalueCutoff = 1,
+                          pAdjustMethod = "BH",
+                          qvalueCutoff = 1,
+                          organism = "UNKNOWN", 
+                          ontology = "BP",
+                          gene = GO@gene,
+                          universe = GO@universe,
+                          geneSets = GO@geneSets,
+                          keytype = "UNKNOWN",  
+                          readable = TRUE)
+edo <- pairwise_termsim(filtered_rural)
+dotplot(filtered_rural, showCategory=10, font.size=10)
 ```
 
 
 
 ```{r}
-df_top <- res_urb %>%
-  filter(method == "GSEA") %>%
-  arrange(desc(NES)) %>%
-  slice_head(n = 5) %>%
-  bind_rows(
-    res_urb %>%
-      filter(method == "GSEA") %>%
-      arrange(NES) %>%
-      slice_head(n = 5)) %>%
-  arrange(NES) %>%
-  mutate(Description_clean = factor(Description_clean, levels = Description_clean))
+# Add a column to each df to mark Urban vs Rural
+urban_df <- data.frame(filtered_urban %>% mutate(Group = "Urban"))
+rural_df <- data.frame(filtered_rural %>% mutate(Group = "Rural"))
 
+# Take top 5 from each based on adjusted p-value
+urban_top5 <- urban_df %>% arrange(p.adjust) %>% slice_head(n = 5)
+rural_top5 <- rural_df %>% arrange(p.adjust) %>% slice_head(n = 5)
+
+df_top <- bind_rows(urban_top5, rural_top5) %>%
+  mutate(Description_clean = Description)
+
+df_top <- df_top %>%
+  group_by(Group) %>%
+  arrange(desc(FoldEnrichment), .by_group = TRUE) %>%
+  mutate(ordering = row_number()) %>%
+  ungroup()
+
+
+manual_order <- c(
+  # Urban top 5
+  "small molecule catabolic process",
+  "carboxylic acid metabolic process",
+  "purine-containing compound metabolic process",
+  "nucleoside phosphate metabolic process",
+  "nucleobase-containing small molecule metabolic process",
+  
+  # Rural top 5
+  "regulation of B cell receptor signaling pathway",
+  "regulation of antigen receptor-mediated signaling pathway",
+  "antigen receptor-mediated signaling pathway",
+  "regulation of leukocyte activation",
+  "T cell activation")
+
+# Apply to factor
+df_top <- df_top %>%
+  mutate(Description_clean = factor(Description_clean, levels = manual_order))
+```
+
+```{r}
 ggplot(df_top, aes(x = Description_clean, y = 0)) +
-  geom_point(aes(size = setSize, color = NES)) +
+  geom_point(aes(
+    size = Count,
+    color = Group,
+    alpha = FoldEnrichment)) +
   scale_size(range = c(3, 12)) +
-  scale_color_gradient2(
-    low = "#17154FFF", mid = "white", high = "#D95E31FF", midpoint = 0) +
-  theme_minimal() +
+  scale_color_manual(
+    values = c("Urban" = "#17154FFF", "Rural" = "#D95E31FF")) +
+  scale_alpha_continuous(range = c(0.8, 1)) +
+  theme_classic() +
   theme(
     axis.text.y = element_blank(),
     axis.ticks.y = element_blank(),
     axis.title.y = element_blank(),
-    axis.text.x = element_text(angle = 45, hjust = 1, size = 20),
-    panel.grid = element_blank(), 
-    plot.margin = margin(t = 20, r = 20, b = 50, l = 20)) +
+    axis.text.x = element_text(angle = 75, hjust = 1, size = 12),
+    panel.grid = element_blank()) +
   labs(
     x = NULL, y = NULL,
-    size = "Gene set size", color = "NES")
+    size = "Gene Count",
+    color = "Group",
+    alpha = "Fold Enrichment")
 
+#L 6x5
+```
+
+
+
+
+
+EL urban, background (all genes), test (all EL urban genes)
+```{r}
+test= subset(early_genes, early_genes$every_early>0)$gene
+back<-model_out$gene
+
+GO <- enrichGO(gene = test,
+                      universe = back,
+                      OrgDb = org.Hs.eg.db,
+                      ont  = "BP", keyType = "SYMBOL",
+                      pAdjustMethod = "none",
+                      qvalueCutoff  = 1,minGSSize = 5, maxGSSize = 500,
+                      readable = TRUE)
+
+filtered_df <- GO@result[GO@result$p.adjust < 0.1, ]
+
+filtered_urban <- new("enrichResult",
+                          result = filtered_df,
+                          pvalueCutoff = 1,
+                          pAdjustMethod = "BH",
+                          qvalueCutoff = 1,
+                          organism = "UNKNOWN", 
+                          ontology = "BP",
+                          gene = GO@gene,
+                          universe = GO@universe,
+                          geneSets = GO@geneSets,
+                          keytype = "UNKNOWN",  
+                          readable = TRUE)
+edo <- pairwise_termsim(filtered_urban)
+dotplot(GO, showCategory=10, font.size=10)
+```
+
+
+EL rural, background (all genes), test (all EL rural genes)
+```{r}
+test= subset(early_genes, early_genes$every_early<0)$gene
+back<-model_out$gene
+
+GO <- enrichGO(gene = test,
+                      universe = back,
+                      OrgDb = org.Hs.eg.db,
+                      ont  = "BP", keyType = "SYMBOL",
+                      pAdjustMethod = "none",
+                      qvalueCutoff  = 1,minGSSize = 5, maxGSSize = 500,
+                      readable = TRUE)
+
+filtered_df <- GO@result[GO@result$p.adjust < 0.1, ]
+
+filtered_rural <- new("enrichResult",
+                          result = filtered_df,
+                          pvalueCutoff = 1,
+                          pAdjustMethod = "BH",
+                          qvalueCutoff = 1,
+                          organism = "UNKNOWN", 
+                          ontology = "BP",
+                          gene = GO@gene,
+                          universe = GO@universe,
+                          geneSets = GO@geneSets,
+                          keytype = "UNKNOWN",  
+                          readable = TRUE)
+edo <- pairwise_termsim(filtered_rural)
+dotplot(GO, showCategory=10, font.size=10)
+```
+
+
+
+EL urban, background (all genes), test (significant EL urban genes)
+```{r}
+test= subset(model_out, model_out$padj_early<0.1 & model_out$every_early>0)$gene
+back<-model_out$gene
+
+GO <- enrichGO(gene = test,
+                      universe = back,
+                      OrgDb = org.Hs.eg.db,
+                      ont  = "BP", keyType = "SYMBOL",
+                      pAdjustMethod = "none",
+                      qvalueCutoff  = 1,minGSSize = 5, maxGSSize = 500,
+                      readable = TRUE)
+
+filtered_df <- GO@result[GO@result$p.adjust < 0.1, ]
+
+filtered_urban <- new("enrichResult",
+                          result = filtered_df,
+                          pvalueCutoff = 1,
+                          pAdjustMethod = "BH",
+                          qvalueCutoff = 1,
+                          organism = "UNKNOWN", 
+                          ontology = "BP",
+                          gene = GO@gene,
+                          universe = GO@universe,
+                          geneSets = GO@geneSets,
+                          keytype = "UNKNOWN",  
+                          readable = TRUE)
+edo <- pairwise_termsim(filtered_urban)
+dotplot(GO, showCategory=10, font.size=10)
+```
+
+EL rural, background (all genes), test (significant EL rural genes)
+```{r}
+test= subset(model_out, model_out$padj_early<0.1 & model_out$every_early<0)$gene
+back<-model_out$gene
+
+GO <- enrichGO(gene = test,
+                      universe = back,
+                      OrgDb = org.Hs.eg.db,
+                      ont  = "BP", keyType = "SYMBOL",
+                      pAdjustMethod = "none",
+                      qvalueCutoff  = 1,minGSSize = 5, maxGSSize = 500,
+                      readable = TRUE)
+
+filtered_df <- GO@result[GO@result$p.adjust < 0.1, ]
+
+filtered_rural <- new("enrichResult",
+                          result = filtered_df,
+                          pvalueCutoff = 1,
+                          pAdjustMethod = "BH",
+                          qvalueCutoff = 1,
+                          organism = "UNKNOWN", 
+                          ontology = "BP",
+                          gene = GO@gene,
+                          universe = GO@universe,
+                          geneSets = GO@geneSets,
+                          keytype = "UNKNOWN",  
+                          readable = TRUE)
+edo <- pairwise_termsim(filtered_rural)
+dotplot(GO, showCategory=10, font.size=10)
 ```
 
 ```{r}
-df_top <- res_early %>%
-  filter(method == "GSEA") %>%
-  arrange(desc(NES)) %>%
-  slice_head(n = 5) %>%
-  bind_rows(
-    res_urb %>%
-      filter(method == "GSEA") %>%
-      arrange(NES) %>%
-      slice_head(n = 5)) %>%
-  arrange(NES) %>%
-  mutate(Description_clean = factor(Description_clean, levels = Description_clean))
+# Add a column to each df to mark Urban vs Rural
+urban_df <- data.frame(filtered_urban %>% mutate(Group = "Urban"))
+rural_df <- data.frame(filtered_rural %>% mutate(Group = "Rural"))
 
+# Take top 5 from each based on adjusted p-value
+urban_top5 <- urban_df %>% arrange(p.adjust) %>% slice_head(n = 5)
+rural_top5 <- rural_df %>% arrange(p.adjust) %>% slice_head(n = 5)
+
+df_top <- bind_rows(urban_top5, rural_top5) %>%
+  mutate(Description_clean = Description)
+
+df_top <- df_top %>%
+  group_by(Group) %>%
+  arrange(desc(FoldEnrichment), .by_group = TRUE) %>%
+  mutate(ordering = row_number()) %>%
+  ungroup()
+
+manual_order <- c(
+  # Rural top 5
+  "glycoside catabolic process",
+  "norepinephrine secretion",
+  "T cell mediated cytotoxicity",
+  "regulation of T cell mediated cytotoxicity",
+  "bone development",
+  
+  
+  # Urban top 5
+  "'de novo' protein folding",
+  "chaperone-mediated protein folding",
+  "response to unfolded protein",
+  "protein folding",
+  "cellular response to lipopolysaccharide")
+
+# Apply to factor
+df_top <- df_top %>%
+  mutate(Description_clean = factor(Description_clean, levels = manual_order))
+```
+
+```{r}
 ggplot(df_top, aes(x = Description_clean, y = 0)) +
-  geom_point(aes(size = setSize, color = NES)) +
+  geom_point(aes(
+    size = Count,
+    color = Group,
+    alpha = FoldEnrichment)) +
   scale_size(range = c(3, 12)) +
-  scale_color_gradient2(low = "#17154FFF", mid = "white", high = "#D95E31FF", midpoint = 0) +
-  theme_minimal() +
+  scale_color_manual(
+    values = c("Rural" = "#17154FFF", "Urban" = "#D95E31FF")) +
+  scale_alpha_continuous(range = c(0.8, 1)) +
+  theme_classic() +
   theme(
     axis.text.y = element_blank(),
     axis.ticks.y = element_blank(),
     axis.title.y = element_blank(),
-    axis.text.x = element_text(angle = 45, hjust = 1, size = 20),
-    panel.grid = element_blank(), 
-    plot.margin = margin(t = 20, r = 20, b = 50, l = 20)) +
+    axis.text.x = element_text(angle = 75, hjust = 1, size = 12),
+    panel.grid = element_blank()) +
   labs(
     x = NULL, y = NULL,
-    size = "Gene set size", color = "NES")
+    size = "Gene Count",
+    color = "Group",
+    alpha = "Fold Enrichment")
 
-```
-
-removing p-value cutoff and adding plotting columns
-
-```{r}
-run_GO_dual <- function(genes_df, score_col, orgdb = org.Hs.eg.db,
-                        ont = "BP", keyType = "SYMBOL",
-                        minGSSize = 10, maxGSSize = 500,
-                        p_cutoff = 0.1) {
-
-  # --- ranked list for GSEA ---
-  ranks <- genes_df[[score_col]]
-  names(ranks) <- genes_df$gene
-  ranks <- sort(ranks, decreasing = TRUE)
-
-  # --- GSEA ---
-  gsea_res <- gseGO(
-    geneList     = ranks,
-    OrgDb        = orgdb,
-    ont          = ont,
-    keyType      = keyType,
-    minGSSize    = minGSSize,
-    maxGSSize    = maxGSSize,
-    pvalueCutoff = 1,
-    verbose      = FALSE
-  )
-
-  gsea_df <- as.data.frame(gsea_res@result) %>%
-    filter(p.adjust < p_cutoff) %>%
-    mutate(
-      method = "GSEA",
-      Group = ifelse(NES > 0, "Urban", "Rural"),
-      Description_clean = stringr::str_replace_all(Description, " process", ""),
-      plot_value = NES,       # for color in dotplot
-      plot_size  = setSize    # for point size in dotplot
-    )
-
-  # --- ORA (split into pos/neg subsets) ---
-  pos_genes <- genes_df %>% filter(.data[[score_col]] > 0) %>% pull(gene)
-  neg_genes <- genes_df %>% filter(.data[[score_col]] < 0) %>% pull(gene)
-  universe   <- genes_df$gene
-
-  run_enrich <- function(gset, label) {
-    res <- enrichGO(
-      gene     = gset,
-      universe = universe,
-      OrgDb    = orgdb,
-      ont      = ont,
-      keyType  = keyType,
-      pAdjustMethod = "BH",
-      qvalueCutoff  = 1,
-      minGSSize     = minGSSize,
-      maxGSSize     = maxGSSize,
-      readable      = TRUE
-    )
-
-    # Convert GeneRatio column from "Count/SetSize" to numeric
-    df <- res@result %>%
-      tidyr::separate(GeneRatio, into = c("Count_num", "SetSize_num"), sep = "/", convert = TRUE) %>%
-      mutate(
-        GeneRatio_num = Count_num / SetSize_num,
-        NES = NA_real_,
-        Group = label,
-        Description_clean = stringr::str_replace_all(Description, " process", ""),
-        plot_value = ifelse(Group == "Urban", log2(GeneRatio_num), -log2(GeneRatio_num)),
-        plot_size  = Count_num
-      )
-    return(df)
-  }
-
-  ora_pos <- run_enrich(pos_genes, "Urban")
-  ora_neg <- run_enrich(neg_genes, "Rural")
-
-  # --- combine results ---
-  bind_rows(gsea_df, ora_pos, ora_neg)
-}
-
-
+#L 6x5
 ```
 
 
-
-```{r}
-# For current life (urb_genes)
-res_urb <- run_GO_dual(urb_genes, "every_urb")
-
-# For early life (early_genes)
-res_early <- run_GO_dual(early_genes, "every_early")
-```
-
-
-```{r}
-df_top <- res_early %>%
-  arrange(desc(plot_value)) %>%
-  slice_head(n = 5) %>%
-  bind_rows(
-    res_early %>%
-      arrange(plot_value) %>%
-      slice_head(n = 5)) %>%
-  arrange(plot_value) %>%
-  mutate(
-    Description_clean = make.unique(Description_clean),
-    Description_clean = factor(Description_clean, levels = Description_clean))
-
-ggplot(df_top, aes(x = Description_clean, y = 0)) +
-  geom_point(aes(size = plot_size, color = plot_value)) +
-  scale_size(range = c(3, 12)) +
-  scale_color_gradient2(low = "#17154FFF", mid = "white", high = "#D95E31FF", midpoint = 0) +
-  theme_minimal() +
-  theme(
-    axis.text.y = element_blank(),
-    axis.ticks.y = element_blank(),
-    axis.title.y = element_blank(),
-    axis.text.x = element_text(angle = 45, hjust = 1, size = 20),
-    panel.grid = element_blank(),
-    plot.margin = margin(t = 20, r = 20, b = 50, l = 20)
-  ) +
-  labs(x = NULL, y = NULL, size = "Gene count / set size", color = "NES / log2(GeneRatio)")
-
-```
-
-
-```{r}
-df_top <- res_urb %>%
-  arrange(desc(plot_value)) %>%
-  slice_head(n = 5) %>%
-  bind_rows(
-    res_urb %>%
-      arrange(plot_value) %>%
-      slice_head(n = 5)) %>%
-  arrange(plot_value) %>%
-  mutate(
-    Description_clean = make.unique(Description_clean),
-    Description_clean = factor(Description_clean, levels = Description_clean))
-
-ggplot(df_top, aes(x = Description_clean, y = 0)) +
-  geom_point(aes(size = plot_size, color = plot_value)) +
-  scale_size(range = c(3, 12)) +
-  scale_color_gradient2(low = "#17154FFF", mid = "white", high = "#D95E31FF", midpoint = 0) +
-  theme_minimal() +
-  theme(
-    axis.text.y = element_blank(),
-    axis.ticks.y = element_blank(),
-    axis.title.y = element_blank(),
-    axis.text.x = element_text(angle = 45, hjust = 1, size = 20),
-    panel.grid = element_blank(),
-    plot.margin = margin(t = 20, r = 20, b = 50, l = 20)
-  ) +
-  labs(x = NULL, y = NULL, size = "Gene count / set size", color = "NES / log2(GeneRatio)")
-
-```
 
 
 
@@ -1787,7 +1679,7 @@ if (length(to_match) > 0) {
   df_map <- df_map %>%
     left_join(fuzzy_tbl, by = "cell_type_clean") %>%
     mutate(cell_type_final = coalesce(cell_type_final, cell_type_final_fuzzy)) %>%
-    select(-cell_type_final_fuzzy)
+    dplyr::select(-cell_type_final_fuzzy)
 }
 
 # ---- final diagnostics before applying to full df ----
@@ -1801,7 +1693,7 @@ if (nrow(still_unmatched) > 0) {
 
 # ---- join mapping back to umap_df and keep only matched allowed types ----
 umap_df_mapped <- umap_df %>%
-  left_join(df_map %>% select(cell_type_raw, cell_type_final), 
+  left_join(df_map %>% dplyr::select(cell_type_raw, cell_type_final), 
             by = c("cell_type_low" = "cell_type_raw")) %>%
   filter(!is.na(cell_type_final)) %>%
   mutate(cell_type_final = factor(cell_type_final, levels = allowed_cell_types))
