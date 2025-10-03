@@ -33,6 +33,7 @@ library(stringdist)
 library(RColorBrewer)
 library(scales)
 library(colorspace)
+library(ggmap)
 ```
 
 
@@ -49,11 +50,53 @@ meta %>% ggplot(aes(x=age, fill=rnaseq_sex)) + geom_density(alpha=0.8) + theme_b
 ```
 
 
+map and EL vs CL plot
+--------------------------------------
 
+```{r}
+meta <- readRDS("meta_final.rds")
+```
 
+```{r}
+meta %>% ggplot(aes(x=Early_urban_PC1, y=urb_score.y)) + geom_point(color="purple4") + theme_classic(base_size = 20) + labs(x = "Early Life Urbanicity", y = "Current Life Urbanicity")
+#L 6x5
+```
 
+```{r}
+OA_merged=read.delim('~/Downloads/18apr25_OA_merged_filt.txt')
+medianlat <- median(OA_merged$lat, na.rm = TRUE)
+medianlong <- median(OA_merged$long, na.rm = TRUE)
 
+pal=c("#5495CFFF", "#F5AF4DFF", "#DB4743FF", "#7C873EFF", "#FEF4D5FF")
 
+register_google('AIzaSyBqRWaHZTtsvaSOIwDdHjmTVPD-cXvaKrE')
+s <- "element:geometry%7Ccolor:0xf5f5f5&style=element:labels%7Cvisibility:off&style=element:labels.icon%7Cvisibility:off&style=element:labels.text.fill%7Ccolor:0x616161&style=element:labels.text.stroke%7Ccolor:0xf5f5f5&style=feature:administrative%7Celement:geometry%7Cvisibility:off&style=feature:administrative.country%7Celement:geometry.stroke%7Ccolor:0x000000%7Cvisibility:on&style=feature:administrative.land_parcel%7Cvisibility:off&style=feature:administrative.land_parcel%7Celement:labels.text.fill%7Ccolor:0xbdbdbd&style=feature:administrative.neighborhood%7Cvisibility:off&style=feature:poi%7Cvisibility:off&style=feature:poi%7Celement:geometry%7Ccolor:0xeeeeee&style=feature:poi%7Celement:labels.text.fill%7Ccolor:0x757575&style=feature:poi.park%7Celement:geometry%7Ccolor:0xe5e5e5&style=feature:poi.park%7Celement:labels.text.fill%7Ccolor:0x9e9e9e&style=feature:road%7Cvisibility:off&style=feature:road%7Celement:geometry%7Ccolor:0xffffff&style=feature:road%7Celement:labels.icon%7Cvisibility:off&style=feature:road.arterial%7Celement:labels.text.fill%7Ccolor:0x757575&style=feature:road.highway%7Celement:geometry%7Ccolor:0xdadada&style=feature:road.highway%7Celement:labels.text.fill%7Ccolor:0x616161&style=feature:road.local%7Celement:labels.text.fill%7Ccolor:0x9e9e9e&style=feature:transit%7Cvisibility:off&style=feature:transit.line%7Celement:geometry%7Ccolor:0xe5e5e5&style=feature:transit.station%7Celement:geometry%7Ccolor:0xeeeeee&style=feature:water%7Celement:geometry%7Ccolor:0xc9c9c9&style=feature:water%7Celement:labels.text.fill%7Ccolor:0x9e9e9e&size=480x360"
+c(medianlong, medianlat)
+
+map <- get_googlemap(center=c(102,4), zoom = 7, scale = 1, style = s)
+m <- ggmap(map)
+
+Current_urb_by_village<- OA_merged %>%
+  group_by(village_id) %>%
+  summarize(
+    mean_lat= mean(lat),
+    mean_long=mean(long),
+    mean_urb = mean(urb_score, na.rm=T), 
+    count = n() )
+
+Current_urb_by_village<-subset(Current_urb_by_village,count>9)
+current_urb_filt = Current_urb_by_village[-which(Current_urb_by_village$village_id==11),]
+current_urb_plot<- m +
+  geom_point(data = current_urb_filt, aes(x = mean_long, y = mean_lat, fill=mean_urb, size=count), color="black", alpha = 0.8, shape=21) +
+  labs(x="Longitude", y="Latitude", size="Sample \n  size", fill="    Adult \n urbanicity \n    score") +
+  scale_fill_gradient(low = "#5CB9F4", high = pal[3], breaks = c(2.984, 41.729), labels = c("Low", "High")) + 
+  scale_size_continuous(range = c(5,7)) + 
+  xlim(100.5, 103.5) +
+  ylim(2.5, 6) +
+  theme_bw(13); current_urb_plot
+
+#L 5x5
+```
 
 
 
@@ -882,19 +925,19 @@ df_top <- df_top %>%
 
 
 manual_order <- c(
-  # Urban top 5
-  "small molecule catabolic process",
-  "carboxylic acid metabolic process",
-  "purine-containing compound metabolic process",
-  "nucleoside phosphate metabolic process",
-  "nucleobase-containing small molecule metabolic process",
-  
   # Rural top 5
   "regulation of B cell receptor signaling pathway",
   "regulation of antigen receptor-mediated signaling pathway",
   "antigen receptor-mediated signaling pathway",
   "regulation of leukocyte activation",
-  "T cell activation")
+  "T cell activation",
+  
+  # Urban top 5
+  "small molecule catabolic process",
+  "carboxylic acid metabolic process",
+  "purine-containing compound metabolic process",
+  "nucleoside phosphate metabolic process",
+  "nucleobase-containing small molecule metabolic process")
 
 # Apply to factor
 df_top <- df_top %>%
@@ -909,7 +952,7 @@ ggplot(df_top, aes(x = Description_clean, y = 0)) +
     alpha = FoldEnrichment)) +
   scale_size(range = c(3, 12)) +
   scale_color_manual(
-    values = c("Urban" = "#17154FFF", "Rural" = "#D95E31FF")) +
+    values = c("Rural" = "#17154FFF", "Urban" = "#D95E31FF")) +
   scale_alpha_continuous(range = c(0.8, 1)) +
   theme_classic() +
   theme(
@@ -1173,40 +1216,58 @@ model_out$sig_early = ifelse(model_out$padj_early<0.1, 1, 0)
 top_genes <- model_out[model_out$sig_current == 1, ]
 top_genes <- top_genes[order(top_genes$`every_p_value_as.numeric(scale(meta$urb_score.y))`, -abs(top_genes$every_urb)), ][1:10, ]
 
-model_out %>% ggplot(aes(x=every_urb, y=-log10(`every_p_value_as.numeric(scale(meta$urb_score.y))`))) + geom_point(aes(color = as.factor(sig_current), alpha = 0.25)) + theme_minimal(base_size = 20) + xlab("logfc") + ylab("-log10(p-value)") + scale_color_manual(values = c("grey", "darkgreen"))  + theme(legend.position = "none") + geom_label_repel(data = top_genes, aes(label = gene), size = 3, box.padding = 0.8, label.size = 0.2, label.r = unit(0.15, "lines"), max.overlaps = 20) +  ggtitle("current lifestyle genes")
+model_out %>% ggplot(aes(x=every_urb, y=-log10(`every_p_value_as.numeric(scale(meta$urb_score.y))`))) + geom_point(aes(color = as.factor(sig_current), alpha = 0.25)) + theme_minimal(base_size = 20) + xlab("logfc") + ylab("-log10(p-value)") + scale_color_manual(values = c("grey", "darkgreen"))  + theme(legend.position = "none") + geom_label_repel(data = top_genes, aes(label = gene), size = 3, box.padding = 0.8, label.size = 0.2, label.r = unit(0.15, "lines"), max.overlaps = 20) +  ggtitle("Current Lifestyle Genes") + ylim(0,10)
 
 #L 5x5
 ```
 
+```{r}
+top_genes_filt = top_genes %>% filter(gene %in% c("PDK4", "LCN10"))
 
+model_out %>% ggplot(aes(x=every_urb, y=-log10(`every_p_value_as.numeric(scale(meta$urb_score.y))`))) + geom_point(aes(color = as.factor(sig_current), alpha = 0.25)) + theme_minimal(base_size = 20) + xlab("logfc") + ylab("-log10(p-value)") + scale_color_manual(values = c("grey", "darkgreen"))  + theme(legend.position = "none") + geom_label_repel(data = top_genes_filt, aes(label = gene), size = 3, box.padding = 0.8, label.size = 0.2, label.r = unit(0.15, "lines"), max.overlaps = 20) +  ggtitle("Current Lifestyle Genes") + ylim(0,10)
+
+#L 5x5
+```
 
 
 ```{r}
 top_genes <- model_out[model_out$sig_early == 1, ]
 top_genes <- top_genes[order(top_genes$`every_p_value_as.numeric(scale(meta$Early_urban_PC1))`, -abs(top_genes$every_early)), ][1:10, ]
 
-model_out %>% ggplot(aes(x=every_early, y=-log10(`every_p_value_as.numeric(scale(meta$Early_urban_PC1))`))) + geom_point(aes(color = as.factor(sig_early), alpha = 0.25)) + theme_minimal(base_size = 20) + xlab("logfc") + ylab("-log10(p-value)") + scale_color_manual(values = c("grey", "steelblue"))  + theme(legend.position = "none") + geom_label_repel(data = top_genes, aes(label = gene), size = 3, box.padding = 0.8, label.size = 0.2, label.r = unit(0.15, "lines"), max.overlaps = 20) +  ggtitle("early lifestyle genes")
+model_out %>% ggplot(aes(x=every_early, y=-log10(`every_p_value_as.numeric(scale(meta$Early_urban_PC1))`))) + geom_point(aes(color = as.factor(sig_early), alpha = 0.25)) + theme_minimal(base_size = 20) + xlab("logfc") + ylab("-log10(p-value)") + scale_color_manual(values = c("grey", "steelblue"))  + theme(legend.position = "none") + geom_label_repel(data = top_genes, aes(label = gene), size = 3, box.padding = 0.8, label.size = 0.2, label.r = unit(0.15, "lines"), max.overlaps = 20) +  ggtitle("Early Lifestyle Genes") + ylim(0,10)
 
 #L 5x5
 ```
 
+```{r}
+top_genes_filt = top_genes %>% filter(gene %in% c("CXCL1", "CPT2"))
+
+model_out %>% ggplot(aes(x=every_early, y=-log10(`every_p_value_as.numeric(scale(meta$Early_urban_PC1))`))) + geom_point(aes(color = as.factor(sig_early), alpha = 0.25)) + theme_minimal(base_size = 20) + xlab("logfc") + ylab("-log10(p-value)") + scale_color_manual(values = c("grey", "steelblue"))  + theme(legend.position = "none") + geom_label_repel(data = top_genes_filt, aes(label = gene), size = 3, box.padding = 0.8, label.size = 0.2, label.r = unit(0.15, "lines"), max.overlaps = 20) +  ggtitle("Early Lifestyle Genes") + ylim(0,10)
+
+#L 5x5
+```
 
 
 ```{r}
 gene_list = c(urb_genes$gene, early_genes$gene)
 gene_list=gene_list[!duplicated(gene_list)]
 
+plot_data <- model_out %>%
+  dplyr::select(every_urb, every_early) %>%
+  tidyr::pivot_longer(cols = everything(),names_to = "variable", values_to = "value")
+
+plot_data %>% filter(abs(value) <0.15) %>% ggplot(aes(x = abs(value), fill = variable)) +
+  geom_density(alpha = 0.6) + scale_fill_manual(values = c("steelblue", "darkgreen")) + theme_bw(base_size = 20) + labs(title = "Density of Gene Expression Effect Sizes", x = "abs(Effect Size)", y = "Density")
+#L 8x5
+
+
 plot_data <- model_out %>% filter(gene %in% gene_list) %>%
   dplyr::select(every_urb, every_early) %>%
   tidyr::pivot_longer(cols = everything(),names_to = "variable", values_to = "value")
 
-ggplot(plot_data, aes(x = abs(value), fill = variable)) +
-  geom_density(alpha = 0.6) + scale_fill_manual(values = c("steelblue", "darkgreen")) + theme_bw(base_size = 20) + labs(title = "Density of Gene Expression Effect Sizes", x = "abs(Effect Size)", y = "Density")
-#L 8x5
-
-ggplot(plot_data, aes(x = abs(value), fill = variable)) +
-  geom_density(alpha = 0.6) + scale_fill_manual(values = c("steelblue", "darkgreen")) + theme_bw(base_size = 20) +
-  theme(legend.position = "none", axis.title = element_blank(), axis.text = element_blank(), plot.title = element_blank())
+plot_data %>% filter(abs(value) <0.15) %>% ggplot(aes(x = abs(value), fill = variable)) +
+  geom_density(alpha = 0.6) + scale_fill_manual(values = c("steelblue", "darkgreen")) + theme_bw(base_size = 20) + theme(legend.position = "none", axis.title = element_blank(), plot.title = element_blank())
+#L 5x4
 ```
 
 
@@ -1230,7 +1291,7 @@ model_summary_df %>%
              fill = direction, alpha = term)) +
   geom_col(position = position_dodge(width = 0.7), width = 0.8) +
   geom_vline(xintercept = 0, linetype = "dashed") +
-  scale_fill_manual(values = c("pro" = "#17154FFF", "anti" = "#D95E31FF")) +
+  scale_fill_manual(values = c("pro" = "red4", "anti" = "#1B9E77")) +
   scale_alpha_manual(values = c("scale(urb_score)" = 1, "scale(Early_urban_PC1)" = 0.5)) +
   labs(x = "Beta Estimate", y = "", fill = "Type", alpha = "Term") +
   theme_minimal(base_size = 20)
@@ -1241,11 +1302,12 @@ model_summary_df %>%
 
 ```{r}
 
-model_summary_df %>% filter(term %in% c("scale(urb_score)", "scale(Early_urban_PC1)")) %>% ggplot(aes(x = abs(estimate), fill = term)) +
-  geom_density(alpha = 0.6) + scale_fill_manual(values = c("steelblue", "darkgreen")) + theme_bw(base_size = 20) + labs(title = "Density of Cytokine Effect Sizes (urb score)", x = "abs(Effect Size)", y = "Density")
+model_summary_df %>% filter(term %in% c("scale(urb_score)", "scale(Early_urban_PC1)")) %>% ggplot(aes(x = abs(estimate), fill = term)) + geom_density(alpha = 0.6) + scale_fill_manual(values = c("steelblue", "darkgreen")) + theme_bw(base_size = 20) + labs(title = "Density of Cytokine Effect Sizes", x = "abs(Effect Size)", y = "Density") 
+#L 10x5
 
 
-#L 8x5
+model_summary_df %>% filter(term %in% c("scale(urb_score)", "scale(Early_urban_PC1)")) %>% filter(!significance=="ns")  %>% ggplot(aes(x = abs(estimate), fill = term)) + geom_density(alpha = 0.6) + scale_fill_manual(values = c("steelblue", "darkgreen")) + theme_bw(base_size = 20) + theme(legend.position = "none", axis.title = element_blank(), plot.title = element_blank())
+#L 5x4
 ```
 
 
@@ -1254,12 +1316,15 @@ model_summary_df %>% filter(term %in% c("scale(urb_score)", "scale(Early_urban_P
 
 cell type proportions modeling 
 ----------------------------------------------------------------------
+```{r}
+rm(list = ls())
+```
 
 ```{r}
-proportions <- read_csv("~/el_tmp/subset_proportions (1).csv")
+proportions <- read_csv("subset_proportions (1).csv")
 colnames(proportions)[1] = "sample_name"
 
-info <- readRDS("~/el_tmp/variance_partitioning/meta_final.rds")
+info <- readRDS("meta_final.rds")
 info %<>% dplyr::select(urb_score.y, Early_urban_PC1, age_scale, sex_medical, sample_name)
 
 info$urb_score.y = as.numeric(scale(info$urb_score.y))
@@ -1428,39 +1493,43 @@ ggplot(plot_df_filtered, aes(x = cell_type_clean, y = estimate, fill = term, alp
 
 
 ```{r}
-ggplot(plot_df_filtered, aes(x = abs(estimate), fill = term)) +
+plot_df_filtered %>% ggplot(aes(x = abs(estimate), fill = term)) +
   geom_density(alpha = 0.6) + scale_fill_manual(values = c("steelblue", "darkgreen")) + theme_bw(base_size = 20) + labs(title = "Density of Cell Type Effect Sizes", x = "abs(Effect Size)", y = "Density")
 #L 8x5
+
+
+plot_df_filtered %>% filter(p.adj<0.1) %>% ggplot(aes(x = abs(estimate), fill = term)) +
+  geom_density(alpha = 0.6) + scale_fill_manual(values = c("steelblue", "darkgreen")) + theme_bw(base_size = 20) + theme(legend.position = "none", axis.title = element_blank(), plot.title = element_blank())
 ```
 
 
 ```{r}
-df %>% ggplot(aes(x=scale(urb_score.y), y=scale(`Non-classical monocytes`))) + geom_point(color="darkgreen") + theme_bw(base_size = 20) + geom_smooth(method = lm, color="black") + labs(x = "scale(Urbanicity Score)", y = "scale(Non-Classical Monocytes)")
+df %>% filter(`Non-classical monocytes`>0) %>% ggplot(aes(x=urb_score.y, y=`Non-classical monocytes`)) + geom_point(color="darkgreen") + theme_bw(base_size = 20) + geom_smooth(method = lm, color="black") + labs(x = "Urbanicity Score", y = "Non-Classical Monocytes")
 #L 5x5 
 ```
 
 
 ```{r}
-df %>% ggplot(aes(x=scale(Early_urban_PC1), y=scale(`Non-classical monocytes`))) + geom_point(color="steelblue") + theme_bw(base_size = 20) + geom_smooth(method = lm, color="black") + labs(x = "scale(Early Life Score)", y = "scale(Non-Classical Monocytes)")
+df %>%  filter(`Non-classical monocytes`>0) %>% ggplot(aes(x=Early_urban_PC1, y=`Non-classical monocytes`)) + geom_point(color="steelblue") + theme_bw(base_size = 20) + geom_smooth(method = lm, color="black") + labs(x = "Early Life Score", y = "Non-Classical Monocytes")
 #L 5x5 
 ```
 
 
 
 ```{r}
-df %>% ggplot(aes(x=scale(urb_score.y), y=scale(`Type 1 helper T cells`))) + geom_point(color="darkgreen") + theme_bw(base_size = 20) + geom_smooth(method = lm, color="black") + labs(x = "scale(Urbanicity Score)", y = "scale(Th1 cells)")
+df %>% filter(`Type 1 helper T cells` > 0)  %>% ggplot(aes(x=urb_score.y, y=`Type 1 helper T cells`)) + geom_point(color="darkgreen") + theme_bw(base_size = 20) + geom_smooth(method = lm, color="black") + labs(x = "Urbanicity Score", y = "Th1 cells")
 #L 5x5 
 ```
 
 
 ```{r}
-df %>% ggplot(aes(x=scale(Early_urban_PC1), y=scale(`Type 1 helper T cells`))) + geom_point(color="steelblue") + theme_bw(base_size = 20) + geom_smooth(method = lm, color="black") + labs(x = "scale(Early Life Score)", y = "scale(Th1 cells)")
+df %>% filter(`Type 1 helper T cells` > 0)  %>% ggplot(aes(x=Early_urban_PC1, y=`Type 1 helper T cells`)) + geom_point(color="steelblue") + theme_bw(base_size = 20) + geom_smooth(method = lm, color="black") + labs(x = "Early Life Score", y = "Th1 cells")
 #L 5x5 
 ```
 
 
 ```{r}
-proportions <- read_csv("~/el_tmp/subset_proportions (1).csv")
+proportions <- read_csv("subset_proportions (1).csv")
 colnames(proportions)[1] = "sample_name"
 
 proportions %<>% dplyr::select(-`Epithelial cells`, -`Intestinal macrophages`, -`Double-negative thymocytes`, -`Double-positive thymocytes`)
@@ -1603,7 +1672,7 @@ umap
 -------------------------------------------------------
 
 ```{r}
-umap_df=readRDS("~/scRNA/plots/umap_plot_df.rds")
+umap_df=readRDS("umap_plot_df.rds")
 ```
 
 ```{r}
