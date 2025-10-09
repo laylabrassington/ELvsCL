@@ -34,6 +34,8 @@ library(RColorBrewer)
 library(scales)
 library(colorspace)
 library(ggmap)
+library(forcats)
+library(ggridges)
 ```
 
 
@@ -569,21 +571,23 @@ ggplot(top5_df, aes(x = type, y = TF, fill = type, alpha = fold_enrichment)) +
   geom_tile(color = "white", width = 0.9, height = 0.9) +
   scale_fill_manual(
     values = c("darkolivegreen", "darkolivegreen3", "dodgerblue3", "skyblue2")) +
-  scale_alpha_continuous(range = c(0.5, 1), name = "Fold Enrichment") +
+  scale_alpha_continuous(range = c(0.6, 1), name = "Fold Enrichment") +
   theme_minimal() +
   labs(title = "Top 5 TFs per Category", x = "Type", y = "Transcription Factor") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1), panel.grid = element_blank())
+#5x5 L
 ```
 
 ```{r}
-ggplot(top5_df, aes(x = type, y = TF, fill = type, alpha = odds_ratio)) +
+ggplot(top5_df, aes(x = type, y = TF, fill = type, alpha = log2(odds_ratio))) +
   geom_tile(color = "white", width = 0.9, height = 0.9) +
   scale_fill_manual(
     values = c("darkolivegreen", "darkolivegreen3", "dodgerblue3", "skyblue2")) +
-  scale_alpha_continuous(range = c(0.5, 1), name = "odds ratio") +
+  scale_alpha_continuous(range = c(0.6, 1), name = "log2(odds ratio)") +
   theme_minimal() +
   labs(title = "Top 5 TFs per Category", x = "Type", y = "Transcription Factor") +
   theme(axis.text.x = element_text(angle = 45, hjust = 1), panel.grid = element_blank())
+#5x5 L
 ```
 
 
@@ -1437,7 +1441,7 @@ rm(list = ls())
 ```
 
 ```{r}
-proportions <- read_csv("subset_proportions (1).csv")
+proportions = readRDS('out_parallel_9oct25.rds')
 colnames(proportions)[1] = "sample_name"
 
 info <- readRDS("meta_final.rds")
@@ -1451,40 +1455,19 @@ df = left_join(info, proportions, by="sample_name")
 ```
 
 
-```{r}
-#list of cell column names 
-cell_columns <- c(
-  "Age-associated B cells", "B cells", "CD16+ NK cells", "CD16- NK cells", "CD8a/a",
-  "CRTAM+ gamma-delta T cells", "Classical monocytes", "Cycling T cells", "DC1", "DC2",
-  "Double-negative thymocytes", "Double-positive thymocytes", "Early lymphoid/T lymphoid",
-  "Epithelial cells", "Follicular helper T cells", "Germinal center B cells", "HSC/MPP", "ILC3",
-  "Intermediate macrophages", "Intestinal macrophages", "MAIT cells", "Macrophages",
-  "Megakaryocytes/platelets", "Memory B cells", "Memory CD4+ cytotoxic T cells", "Mid erythroid",
-  "Mono-mac", "Monocytes", "NK cells", "NKT cells", "Naive B cells", "Non-classical monocytes",
-  "Plasma cells", "Plasmablasts", "Regulatory T cells", "T(agonist)", "Tcm/Naive cytotoxic T cells",
-  "Tcm/Naive helper T cells", "Tem/Effector helper T cells", "Tem/Temra cytotoxic T cells",
-  "Tem/Trm cytotoxic T cells", "Transitional B cells", "Treg(diff)", "Trm cytotoxic T cells",
-  "Type 1 helper T cells", "Type 17 helper T cells", "gamma-delta T cells", "pDC")
-
-#clean up names (gets rid of spaces and symbols)
-cell_columns_clean <- cell_columns %>%
-  gsub("\\+", "pos", .) %>%
-  gsub("-", "neg", .) %>%
-  make.names()
-```
-
-
 model and store results 
 ```{r}
-model_results <- setNames(vector("list", length(cell_columns)), cell_columns_clean)
+cell_columns = colnames(df)[6:22]
+
+model_results <- vector("list", length(cell_columns))
 
 for (i in seq_along(cell_columns)) {
   cell_col <- cell_columns[i]
   model_results[[i]] <- lm(as.formula(paste0("`", cell_col, "` ~ urb_score.y + Early_urban_PC1 + age_scale + sex_medical")), data = df)
 }
+
+names(model_results) <- cell_columns
 ```
-
-
 
 extract coefficients 
 ```{r}
@@ -1499,278 +1482,169 @@ coeff_df <- bind_rows(
 coeff_df$p.adj = p.adjust(coeff_df$p.value, method = "fdr")
 ```
 
-
-plot results 
+make plotting df  
 ```{r}
 plot_df <- coeff_df %>%
   filter(term != "(Intercept)") %>%              # remove intercept
   mutate(significance = ifelse(p.adj < 0.1, "p.adj < 0.1", "n.s."))  # add shading category
 ```
 
-
-
+make cell names more intuitive 
 ```{r}
-cell_groups <- list(
-  T_cells = c("CRTAMpos.gammanegdelta.T.cells", "Cycling.T.cells", "Doublenegnegative.thymocytes", 
-              "Doublenegpositive.thymocytes", "Early.lymphoid.T.lymphoid", "Follicular.helper.T.cells",
-              "gammanegdelta.T.cells", "MAIT.cells", "Memory.CD4pos.cytotoxic.T.cells", "Regulatory.T.cells",
-              "T.agonist.", "Tcm.Naive.cytotoxic.T.cells", "Tcm.Naive.helper.T.cells", 
-              "Tem.Effector.helper.T.cells", "Tem.Temra.cytotoxic.T.cells", "Tem.Trm.cytotoxic.T.cells",
-              "Trm.cytotoxic.T.cells", "Type.1.helper.T.cells", "Type.17.helper.T.cells", "Treg.diff.", "CD8a.a"),
-  Monocytes = c("Classical.monocytes", "Intermediate.macrophages", "Intestinal.macrophages", "Macrophages",
-                "Monocytes", "Mononegmac", "Nonnegclassical.monocytes", "DC1", "DC2", "pDC"),
-  B_cells = c("Agenegassociated.B.cells", "B.cells", "Germinal.center.B.cells", "Memory.B.cells",
-              "Naive.B.cells", "Plasma.cells", "Plasmablasts", "Transitional.B.cells"),
-  NK_cells = c("CD16pos.NK.cells", "CD16neg.NK.cells", "NK.cells", "NKT.cells"),
-  Stem_Progenitor = c("HSC.MPP", "Mid.erythroid", "Megakaryocytes.platelets")
+cell_type_map <- c(
+  "Age.associated.B.cells"       = "Age-Associated B",
+  "CD16..NK.cells"               = "CD16+ NK",
+  "Classical.monocytes"          = "Classical Monocytes",
+  "DC2"                          = "DC2",
+  "MAIT.cells"                   = "MAIT",
+  "Megakaryocytes.platelets"     = "Megakaryocytes/Platelets",
+  "Memory.B.cells"               = "Memory B",
+  "Naive.B.cells"                = "Naive B",
+  "Non.classical.monocytes"      = "Non-Classical Monocytes",
+  "Plasma.cells"                 = "Plasma",
+  "Regulatory.T.cells"           = "Treg",
+  "Tcm.Naive.cytotoxic.T.cells"  = "CD8+ Naive Cytotoxic T",
+  "Tcm.Naive.helper.T.cells"     = "CD4+ Naive Helper T",
+  "Tem.Effector.helper.T.cells"  = "CD4+ Effector Helper T",
+  "Tem.Temra.cytotoxic.T.cells"  = "CD8+ Temra Cytotoxic T",
+  "Tem.Trm.cytotoxic.T.cells"    = "CD8+ Memory Cytotoxic T",
+  "pDC"                          = "pDC"
 )
 
-plot_df$cell_group <- sapply(plot_df$cell_type, function(ct) {
-  group <- names(cell_groups)[sapply(cell_groups, function(x) ct %in% x)]
-  if (length(group) == 0) return("Other") else return(group)})
+plot_df <- plot_df %>%
+  mutate(cell_type = recode(cell_type, !!!cell_type_map))
+```
 
-plot_df_filtered <- plot_df %>%
-  filter(term %in% c("urb_score.y", "Early_urban_PC1")) %>% filter(!cell_type %in% c("Intestinal.macrophages", "Epithelial.cells", "Trm.cytotoxic.T.cells", "Double.negative.thymocytes", "Double.positive.thymocytes"))
+make broader groups 
+```{r}
+plot_df <- plot_df %>%
+  mutate(cell_group = case_when(
+    cell_type %in% c("Treg", "CD8+ Naive Cytotoxic T", "CD4+ Naive Helper T",
+                     "CD4+ Effector Helper T", "CD8+ Temra Cytotoxic T", 
+                     "CD8+ Memory Cytotoxic T", "MAIT") ~ "T cells",
+    
+    cell_type %in% c("Classical Monocytes", "Non-Classical Monocytes") ~ "Monocytes",
+    
+    cell_type %in% c("CD16+ NK") ~ "ILC",
+    
+    cell_type %in% c("Memory B", "Naive B", "Age-Associated B") ~ "B cells",
+    
+    cell_type %in% c("Plasma") ~ "Plasma",
+    
+    cell_type %in% c("Megakaryocytes/Platelets") ~ "Platelets",
+    
+    cell_type %in% c("DC2", "pDC") ~ "DC",
+    
+    TRUE ~ "Other"  # default if any unmatched
+  ))
+```
 
-plot_df_ordered <- plot_df_filtered %>%
-  group_by(cell_group, cell_type) %>%
-  summarize(max_est = max(abs(estimate)), .groups = "drop") %>%
-  arrange(factor(cell_group, levels = c("T_cells", "Monocytes", "B_cells", "NK_cells", "Stem_Progenitor", "Other")),
-          desc(max_est)) %>% mutate(cell_type = factor(cell_type, levels = unique(cell_type)))
+reorder cell_type factor for plotting
+```{r}
+cell_order <- plot_df %>%
+  filter(term == "urb_score.y") %>%
+  arrange(cell_group, desc(estimate)) %>%
+  pull(cell_type)
 
-plot_df_filtered$cell_type <- factor(plot_df_filtered$cell_type,
-                                     levels = levels(plot_df_ordered$cell_type))
-
-plot_df_filtered$cell_type_clean <- recode(plot_df_filtered$cell_type,
-  "Agenegassociated.B.cells" = "Age-Associated B Cells",
-  "B.cells" = "B Cells",
-  "CD16pos.NK.cells" = "CD16+ NK Cells",
-  "CD16neg.NK.cells" = "CD16- NK Cells",
-  "CD8a.a" = "CD8 T Cells",
-  "Classical.monocytes" = "Classical Monocytes",
-  "CRTAMpos.gammanegdelta.T.cells" = "CRTAM+ gamma-delta T Cells",
-  "Cycling.T.cells" = "Cycling T Cells",
-  "DC1" = "DC1",
-  "DC2" = "DC2",
-  "Doublenegnegative.thymocytes" = "Double Negative Thymocytes",
-  "Doublenegpositive.thymocytes" = "Double Positive Thymocytes",
-  "Early.lymphoid.T.lymphoid" = "Early Lymphoid T Cells",
-  "Epithelial.cells" = "Epithelial Cells",
-  "Follicular.helper.T.cells" = "Follicular Helper T Cells",
-  "gammanegdelta.T.cells" = "gamma-delta T Cells",
-  "Germinal.center.B.cells" = "Germinal Center B Cells",
-  "HSC.MPP" = "HSC/MPP",
-  "ILC3" = "ILC3",
-  "Intermediate.macrophages" = "Intermediate Macrophages",
-  "Intestinal.macrophages" = "Intestinal Macrophages",
-  "Macrophages" = "Macrophages",
-  "MAIT.cells" = "MAIT Cells",
-  "Megakaryocytes.platelets" = "Megakaryocytes/Platelets",
-  "Memory.B.cells" = "Memory B Cells",
-  "Memory.CD4pos.cytotoxic.T.cells" = "Memory CD4 Cytotoxic T Cells",
-  "Mid.erythroid" = "Mid Erythroid",
-  "Mononegmac" = "Mono-Mac",
-  "Monocytes" = "Monocytes",
-  "Naive.B.cells" = "Naive B Cells",
-  "NK.cells" = "NK Cells",
-  "NKT.cells" = "NKT Cells",
-  "Nonnegclassical.monocytes" = "Non-Classical Monocytes",
-  "pDC" = "pDC",
-  "Plasma.cells" = "Plasma Cells",
-  "Plasmablasts" = "Plasmablasts",
-  "Regulatory.T.cells" = "Regulatory T Cells",
-  "T.agonist." = "T Agonist",
-  "Tcm.Naive.cytotoxic.T.cells" = "Tcm/Naive Cytotoxic T Cells",
-  "Tcm.Naive.helper.T.cells" = "Tcm/Naive Helper T Cells",
-  "Tem.Effector.helper.T.cells" = "Tem/Effector Helper T Cells",
-  "Tem.Temra.cytotoxic.T.cells" = "Tem/Temra Cytotoxic T Cells",
-  "Tem.Trm.cytotoxic.T.cells" = "Tem/Trm Cytotoxic T Cells",
-  "Transitional.B.cells" = "Transitional B Cells",
-  "Treg.diff." = "Differentiated Tregs",
-  "Trm.cytotoxic.T.cells" = "Trm Cytotoxic T Cells",
-  "Type.1.helper.T.cells" = "Type 1 Helper T Cells",
-  "Type.17.helper.T.cells" = "Type 17 Helper T Cells"
-)
+plot_df_filt <- plot_df %>%
+  filter(term %in% c("urb_score.y", "Early_urban_PC1")) %>%
+  mutate(cell_type = factor(cell_type, levels = cell_order),
+         cell_group = factor(cell_group, levels = c("T cells", "ILC", "Monocytes", "B cells", "Plasma", "Platelets", "DC")))
 ```
 
 
-
 ```{r}
-ggplot(plot_df_filtered, aes(x = cell_type_clean, y = estimate, fill = term, alpha = significance)) +
+plot_df_filt %>% ggplot(aes(x = cell_type, y = estimate, fill = term, alpha = significance)) +
   geom_col(position = position_dodge(width = 0.8), width = 0.7) +
   scale_alpha_manual(values = c("p.adj < 0.1" = 1, "n.s." = 0.4)) +
   scale_fill_manual(values = c("steelblue", "darkgreen")) +
   labs(x = "Cell Type", y = "Beta Estimate", fill = "Model Term", alpha = "Significance",
-    title = "Model Coefficients Across Cell Types") +
-  theme_minimal(base_size = 30) + theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5), legend.position = "right") + coord_flip()
+       title = "Model Coefficients Across Cell Types") +
+  theme_minimal(base_size = 30) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+        legend.position = "right") + coord_flip()
 
-#p 25x20
+#L 15x10
 ```
 
 
 ```{r}
-plot_df_filtered %>% ggplot(aes(x = abs(estimate), fill = term)) +
-  geom_density(alpha = 0.6) + scale_fill_manual(values = c("steelblue", "darkgreen")) + theme_bw(base_size = 20) + labs(title = "Density of Cell Type Effect Sizes", x = "abs(Effect Size)", y = "Density")
-#L 8x5
+plot_df_filt %>% ggplot(aes(x = abs(estimate), fill = term)) +
+  geom_density(alpha = 0.6) + scale_fill_manual(values = c("steelblue", "darkgreen")) + theme_bw(base_size = 20) + labs(title = "Density of Cell Type Effect Sizes", x = "abs(Effect Size)", y = "Density") + theme(legend.position = "none")
+#L 10x5
 
 
-plot_df_filtered %>% filter(p.adj<0.1) %>% ggplot(aes(x = abs(estimate), fill = term)) +
+plot_df_filt %>% filter(p.adj<0.1) %>% ggplot(aes(x = abs(estimate), fill = term)) +
   geom_density(alpha = 0.6) + scale_fill_manual(values = c("steelblue", "darkgreen")) + theme_bw(base_size = 20) + theme(legend.position = "none", axis.title = element_blank(), plot.title = element_blank())
+#L 5x4
 ```
 
 
 ```{r}
-df %>% filter(`Non-classical monocytes`>0) %>% ggplot(aes(x=urb_score.y, y=`Non-classical monocytes`)) + geom_point(color="darkgreen") + theme_bw(base_size = 20) + geom_smooth(method = lm, color="black") + labs(x = "Urbanicity Score", y = "Non-Classical Monocytes")
+df  %>% ggplot(aes(x=urb_score.y, y=Tem.Trm.cytotoxic.T.cells)) + geom_point(color="darkgreen") + theme_bw(base_size = 20) + geom_smooth(method = lm, color="black") + labs(x = "Current Lifestyle Score", y = "CD8+ Memory Cytotoxic T")
 #L 5x5 
 ```
 
 
 ```{r}
-df %>%  filter(`Non-classical monocytes`>0) %>% ggplot(aes(x=Early_urban_PC1, y=`Non-classical monocytes`)) + geom_point(color="steelblue") + theme_bw(base_size = 20) + geom_smooth(method = lm, color="black") + labs(x = "Early Life Score", y = "Non-Classical Monocytes")
+df  %>% ggplot(aes(x=Early_urban_PC1, y=Tem.Trm.cytotoxic.T.cells)) + geom_point(color="steelblue") + theme_bw(base_size = 20) + geom_smooth(method = lm, color="black") + labs(x = "Early Lifestyle Score", y = "CD8+ Memory Cytotoxic T")
 #L 5x5 
 ```
 
 
 
 ```{r}
-df %>% filter(`Type 1 helper T cells` > 0)  %>% ggplot(aes(x=urb_score.y, y=`Type 1 helper T cells`)) + geom_point(color="darkgreen") + theme_bw(base_size = 20) + geom_smooth(method = lm, color="black") + labs(x = "Urbanicity Score", y = "Th1 cells")
-#L 5x5 
+proportions_filt = proportions %>% filter(sample_name %in% df$sample_name) 
+colnames(proportions_filt) <- recode(colnames(proportions_filt), !!!cell_type_map)
+proportions_long <- proportions_filt %>% tidyr::pivot_longer(cols = -sample_name, names_to = "cell_type", values_to = "proportion")
+cell_group_levels <- c("T cells", "ILC", "Monocytes", "B cells", "Plasma", "Platelets", "DC")
+cell_type_order <- c("Treg", "CD8+ Naive Cytotoxic T", "CD4+ Naive Helper T", "CD4+ Effector Helper T",
+                     "CD8+ Temra Cytotoxic T", "CD8+ Memory Cytotoxic T", "MAIT",
+                     "CD16+ NK",
+                     "Classical Monocytes", "Non-Classical Monocytes",
+                     "Memory B", "Naive B", "Age-Associated B",
+                     "Plasma",
+                     "Megakaryocytes/Platelets",
+                     "DC2", "pDC")
+
+proportions_long <- proportions_long %>%
+  mutate(cell_type = factor(cell_type, levels = cell_type_order))
+
+cell_group_map <- c(
+  "Treg" = "T cells", "CD8+ Naive Cytotoxic T" = "T cells", "CD4+ Naive Helper T" = "T cells",
+  "CD4+ Effector Helper T" = "T cells", "CD8+ Temra Cytotoxic T" = "T cells", "CD8+ Memory Cytotoxic T" = "T cells",
+  "MAIT" = "T cells",
+  "CD16+ NK" = "ILC",
+  "Classical Monocytes" = "Monocytes", "Non-Classical Monocytes" = "Monocytes",
+  "Memory B" = "B cells", "Naive B" = "B cells", "Age-Associated B" = "B cells",
+  "Plasma" = "Plasma",
+  "Megakaryocytes/Platelets" = "Platelets",
+  "DC2" = "DC", "pDC" = "DC")
+
+proportions_long <- proportions_long %>%
+  mutate(cell_group = recode(cell_type, !!!cell_group_map))
+```
+
+```{r}
+proportions_long <- proportions_long %>%
+  mutate(cell_type = forcats::fct_rev(cell_type))
+
+proportions_long %>% ggplot(aes(x = proportion, y = cell_type, fill = cell_group)) +
+  geom_density_ridges(scale = 1, alpha = 1, color = "white") +
+  labs(x = "Proportion", y = "Cell Type", title = "Distribution of Cell Type Proportions", fill = "Cell Group") +
+  theme_minimal(base_size = 16) + xlim(0, 0.15)
+#L 7.5x5
 ```
 
 
 ```{r}
-df %>% filter(`Type 1 helper T cells` > 0)  %>% ggplot(aes(x=Early_urban_PC1, y=`Type 1 helper T cells`)) + geom_point(color="steelblue") + theme_bw(base_size = 20) + geom_smooth(method = lm, color="black") + labs(x = "Early Life Score", y = "Th1 cells")
-#L 5x5 
+proportions_long <- proportions_long %>%
+  mutate(cell_type = forcats::fct_rev(cell_type))
+
+proportions_long %>% ggplot(aes(x=sample_name, y=proportion, fill = cell_type)) + geom_bar(stat = "identity", alpha=1) + theme_minimal(base_size = 16) + theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) + labs(x = "Sample", y = "Proportion", fill = "Cell Type")
+
+#L 7.5x5
 ```
-
-
-```{r}
-proportions <- read_csv("subset_proportions (1).csv")
-colnames(proportions)[1] = "sample_name"
-
-proportions %<>% dplyr::select(-`Epithelial cells`, -`Intestinal macrophages`, -`Double-negative thymocytes`, -`Double-positive thymocytes`)
-```
-
-```{r}
-prop_long <- proportions %>%
-  tidyr::pivot_longer(
-    cols = -sample_name,
-    names_to = "cell_type",
-    values_to = "proportion")
-```
-
-```{r}
-cell_groups <- list(
-  T_cells = c("CRTAM+ gamma-delta T cells", "Cycling T cells", "Early lymphoid/T lymphoid", 
-              "Follicular helper T cells", "gamma-delta T cells", "MAIT cells", 
-              "Memory CD4+ cytotoxic T cells", "Regulatory T cells", "T(agonist)", 
-              "Tcm/Naive cytotoxic T cells", "Tcm/Naive helper T cells", 
-              "Tem/Effector helper T cells", "Tem/Temra cytotoxic T cells", 
-              "Tem/Trm cytotoxic T cells", "Trm cytotoxic T cells", 
-              "Type 1 helper T cells", "Type 17 helper T cells", "Treg(diff)", "CD8a/a"),
-  Monocytes = c("Classical monocytes", "Intermediate macrophages", "Macrophages", 
-                "Monocytes", "Mono-mac", "Non-classical monocytes", "DC1", "DC2", "pDC"),
-  B_cells = c("Age-associated B cells", "B cells", "Germinal center B cells", 
-              "Memory B cells", "Naive B cells", "Plasma cells", 
-              "Plasmablasts", "Transitional B cells"),
-  NK_cells = c("CD16+ NK cells", "CD16- NK cells", "NK cells", "NKT cells"),
-  Stem_Progenitor = c("HSC/MPP", "Mid erythroid", "Megakaryocytes/platelets"))
-```
-
-```{r}
-group_df <- stack(cell_groups)
-colnames(group_df) <- c("cell_type", "group")
-
-prop_long <- prop_long %>%
-  left_join(group_df, by = "cell_type")
-
-prop_long$group <- as.character(prop_long$group)
-prop_long$group[is.na(prop_long$group)] <- "Other"
-prop_long$cell_type <- as.character(prop_long$cell_type)
-prop_long$cell_type[is.na(prop_long$cell_type)] <- "Other"
-
-```
-
-
-```{r}
-cell_order <- c(
-  "CD8a/a", "CRTAM+ gamma-delta T cells", "Cycling T cells", "Early lymphoid/T lymphoid",
-  "Follicular helper T cells", "gamma-delta T cells", "MAIT cells", 
-  "Memory CD4+ cytotoxic T cells", "Regulatory T cells", "T(agonist)", 
-  "Tcm/Naive cytotoxic T cells", "Tcm/Naive helper T cells", 
-  "Tem/Effector helper T cells", "Tem/Temra cytotoxic T cells", 
-  "Tem/Trm cytotoxic T cells", "Trm cytotoxic T cells", 
-  "Type 1 helper T cells", "Type 17 helper T cells", "Treg(diff)",
-  "Classical monocytes", "Intermediate macrophages", "Macrophages", 
-  "Monocytes", "Mono-mac", "Non-classical monocytes", "DC1", "DC2", "pDC",
-  "Age-associated B cells", "B cells", "Germinal center B cells", 
-  "Memory B cells", "Naive B cells", "Plasma cells", "Plasmablasts", "Transitional B cells",
-  "CD16+ NK cells", "CD16- NK cells", "NK cells", "NKT cells",
-  "HSC/MPP", "Mid erythroid", "Megakaryocytes/platelets", "Other")
-
-prop_long$cell_type <- factor(prop_long$cell_type, levels = cell_order)
-```
-
-rainbow plot
-```{r}
-ggplot(prop_long, aes(x = sample_name, y = proportion, fill = cell_type)) +
-  geom_bar(stat = "identity") + theme_bw(base_size = 20) +
-  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) + 
-  ylab("Proportion") +
-  xlab("Sample") +
-  guides(fill = guide_legend(ncol = 1)) 
-```
-
-
-
-add in specific coloring 
-```{r}
-group_colors <- c(
-  T_cells = "#1f78b4",         # blue
-  B_cells = "#33a02c",         # green
-  NK_cells = "#e31a1c",        # red
-  Monocytes = "#ff7f00",       # orange
-  Stem_Progenitor = "#6a3d9a", # purple
-  Other = "grey")
-
-cell_type_colors <- prop_long %>%
-  distinct(group, cell_type) %>%
-  group_by(group) %>%
-  summarise(cell_type_list = list(cell_type), .groups = "drop") %>%
-  mutate(
-    colors = lapply(seq_along(cell_type_list), function(i) {
-      base_col <- group_colors[group[i]]
-      n <- length(cell_type_list[[i]])
-      # generate shades from lighter to base color
-      colorRampPalette(c(lighten(base_col, 0.4), base_col))(n)
-    })
-  ) %>%
-  unnest(cols = c(cell_type_list, colors)) %>%
-  dplyr::rename(cell_type = cell_type_list, color = colors)
-
-fill_colors <- setNames(cell_type_colors$color, cell_type_colors$cell_type)
-```
-
-
-```{r}
-ggplot(prop_long, aes(x = sample_name, y = proportion, fill = cell_type)) +
-  geom_bar(stat = "identity") +
-  scale_fill_manual(values = fill_colors) +
-  theme_bw(base_size = 20) +
-  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
-  ylab("Proportion") +
-  xlab("Sample") +
-  guides(fill = guide_legend(ncol = 1))
-
-#L 30x20
-```
-
-
-
-
-
-
-
 
 
 
