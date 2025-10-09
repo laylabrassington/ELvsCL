@@ -1,7 +1,7 @@
 ---
 title: "el_cl_plotting"
 author: "layla"
-date: "2025-10-08"
+date: "2025-10-09"
 output: html_document
 ---
 
@@ -562,6 +562,8 @@ ggplot(top5_df, aes(x = type, y = TF, fill = type)) +
 
 #L 5x5
 ```
+
+
 ```{r}
 ggplot(top5_df, aes(x = type, y = TF, fill = type, alpha = fold_enrichment)) +
   geom_tile(color = "white", width = 0.9, height = 0.9) +
@@ -573,6 +575,16 @@ ggplot(top5_df, aes(x = type, y = TF, fill = type, alpha = fold_enrichment)) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1), panel.grid = element_blank())
 ```
 
+```{r}
+ggplot(top5_df, aes(x = type, y = TF, fill = type, alpha = odds_ratio)) +
+  geom_tile(color = "white", width = 0.9, height = 0.9) +
+  scale_fill_manual(
+    values = c("darkolivegreen", "darkolivegreen3", "dodgerblue3", "skyblue2")) +
+  scale_alpha_continuous(range = c(0.5, 1), name = "odds ratio") +
+  theme_minimal() +
+  labs(title = "Top 5 TFs per Category", x = "Type", y = "Transcription Factor") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), panel.grid = element_blank())
+```
 
 
 looking at nfkb1_rela targets 
@@ -1171,7 +1183,7 @@ ggplot(df_top, aes(x = Description_clean, y = 0)) +
 
 
 
-volcano plots
+gene expression volcano plots
 -------------------------------------------
 ```{r}
 rm(list = ls())
@@ -1256,9 +1268,9 @@ plot_data <- model_out %>%
   dplyr::select(every_urb, every_early) %>%
   tidyr::pivot_longer(cols = everything(),names_to = "variable", values_to = "value")
 
-plot_data %>% filter(abs(value) <0.15) %>% ggplot(aes(x = abs(value), fill = variable)) +
-  geom_density(alpha = 0.6) + scale_fill_manual(values = c("steelblue", "darkgreen")) + theme_bw(base_size = 20) + labs(title = "Density of Gene Expression Effect Sizes", x = "abs(Effect Size)", y = "Density")
-#L 8x5
+plot_data %>% filter(abs(value) <0.10) %>% ggplot(aes(x = abs(value), fill = variable)) +
+  geom_density(alpha = 0.6) + scale_fill_manual(values = c("steelblue", "darkgreen")) + theme_bw(base_size = 20) + labs(title = "Density of Gene Expression Effect Sizes", x = "abs(Effect Size)", y = "Density") + theme(legend.position = "none")
+#L 10x5
 
 
 plot_data <- model_out %>% filter(gene %in% gene_list) %>%
@@ -1277,12 +1289,116 @@ cytokines
 rm(list = ls())
 ```
 
-annoyingly the code is dependent on itself for some reason 
-trying to figure out but for now just saving model output
+large metadata was made 18apr25 using the el score code
+
+```{r message=FALSE, warning=FALSE}
+df_filtered=read.delim('~/Desktop/vandy/lea lab/oa/plasma/18apr25_OA_merged.txt')
+biomarkers <- read_csv("~/Desktop/vandy/lea lab/oa/plasma/biomarkers_plasma_1.csv")
+```
+
+average repeated samples
+```{r warning=FALSE}
+columns_to_average <- names(biomarkers)[7:23]
+bio_avg <- biomarkers %>%
+  group_by(Sample.ID) %>%
+  summarise(across(all_of(columns_to_average), mean), .groups = "drop")
+#ignore the warnings it's just mad about taking the average of an NA 
+```
+
 
 ```{r}
-model_summary_df = readRDS('cytokine_urb_early_30sep25.rds')
+meta_small = df_filtered %>% filter(tid %in% bio_avg$Sample.ID)
+bio_merge = merge(df_filtered, bio_avg, by.x = "tid", by.y = "Sample.ID")
 ```
+
+filter out under 18 individuals
+```{r}
+meta_small %<>% filter(!age<18)
+bio_merge %<>% filter(!age<18)
+bio_avg %<>% filter(Sample.ID %in% bio_merge$tid)
+```
+
+remove cols with no data or don't need
+```{r}
+bio_avg %<>% dplyr::select(-CTXI..ng.ml., -Final.Osteocalcin..pg.ml., -PLT_leptin_LBP, -Sample_leptin_LBP)
+bio_merge %<>% dplyr::select(-CTXI..ng.ml., -Final.Osteocalcin..pg.ml., -PLT_leptin_LBP, -Sample_leptin_LBP)
+```
+
+
+```{r}
+cytokine_cols <- names(bio_avg)[2:14]
+# 1. Log-transform (with small constant to avoid log(0))
+bio_merge[cytokine_cols] <- log2(bio_merge[cytokine_cols] + 0.1)
+
+# 2. Z-score scale (center and scale each column)
+bio_merge[cytokine_cols] <- scale(bio_merge[cytokine_cols])
+```
+
+modeling urb_score and early life together 
+```{r}
+safe_model <- safely(function(colname) {
+  formula_str <- paste0(
+    colname, " ~ scale(urb_score) + scale(Early_urban_PC1) + scale(age) + sex_medical"
+  )
+  f <- as.formula(formula_str)
+  model <- lm(f, data = bio_merge)
+
+  # Get tidy model summary and number of observations
+  list(
+    tidy = broom::tidy(model),    # this includes Estimate, Std. Error, t value, Pr(>|t|)
+    n = nobs(model)
+  )
+})
+
+
+# Apply to named list so names are preserved
+model_results <- map(set_names(cytokine_cols, cytokine_cols), safe_model)
+
+# Separate success/failure
+successful <- keep(model_results, ~ is.null(.x$error))
+failed     <- purrr::discard(model_results, ~ is.null(.x$error))
+
+# Extract and combine model summaries
+model_summary_df <- imap_dfr(successful, function(res, colname) {
+  res$result$tidy %>%
+    mutate(response = colname, n = res$result$n)
+})
+
+model_summary_df$p_adj = p.adjust(model_summary_df$p.value, method='fdr')
+
+model_summary_df$sig = ifelse(model_summary_df$p_adj<0.1, "sig", "ns")
+
+model_summary_df <- model_summary_df %>%
+  mutate(significance = case_when(
+    p_adj < 0.1 ~ "FDR < 0.1",
+    p.value < 0.1 ~ "p value < 0.1",
+    TRUE ~ "ns"
+  ))
+model_summary_df$direction <- ifelse(model_summary_df$response %in% c("Final.IL.10..pg.ml.", "Final.IL.13..pg.ml.", "Final.IL.4..pg.ml."), "anti", "pro")
+```
+
+
+
+```{r}
+manual_order <- c(
+  "Final.Leptin..pg.ml.",
+  "CRP..ng.ml.",
+  "Final.IL.8..pg.ml.",
+  "Final.LBP..pg.ml.",
+  "Final.IL.2..pg.ml.",
+  "Final.IL.6..pg.ml.",
+  "Final.IL.1beta..pg.ml.",
+  "Final.IL12p70..pg.ml.",
+  "Final.IL.4..pg.ml.",
+  "Final.TNF.alpha..pg.ml.",
+  "Final.IFN.gamma..pg.ml.",
+  "Final.IL.10..pg.ml.",
+  "Final.IL.13..pg.ml.")
+
+model_summary_df$response <- factor(model_summary_df$response, levels = rev(manual_order))
+```
+
+
 
 ```{r}
 model_summary_df %>%
@@ -1302,7 +1418,7 @@ model_summary_df %>%
 
 ```{r}
 
-model_summary_df %>% filter(term %in% c("scale(urb_score)", "scale(Early_urban_PC1)")) %>% ggplot(aes(x = abs(estimate), fill = term)) + geom_density(alpha = 0.6) + scale_fill_manual(values = c("steelblue", "darkgreen")) + theme_bw(base_size = 20) + labs(title = "Density of Cytokine Effect Sizes", x = "abs(Effect Size)", y = "Density") 
+model_summary_df %>% filter(term %in% c("scale(urb_score)", "scale(Early_urban_PC1)")) %>% ggplot(aes(x = abs(estimate), fill = term)) + geom_density(alpha = 0.6) + scale_fill_manual(values = c("steelblue", "darkgreen")) + theme_bw(base_size = 20) + labs(title = "Density of Cytokine Effect Sizes", x = "abs(Effect Size)", y = "Density")  + theme(legend.position = "none")
 #L 10x5
 
 
@@ -1657,6 +1773,10 @@ ggplot(prop_long, aes(x = sample_name, y = proportion, fill = cell_type)) +
 
 
 
+
+
+
+
 umap 
 -------------------------------------------------------
 
@@ -1669,5 +1789,7 @@ umap_df %>% ggplot(aes(x=V1, y=V2, color=cell_type_high)) + geom_point() + theme
 umap_df %>% ggplot(aes(x=V1, y=V2, color=cell_type_low)) + geom_point() + theme_bw(base_size = 20) + theme(legend.position = "none")
 #10x10 L
 ```
+
+
 
 
