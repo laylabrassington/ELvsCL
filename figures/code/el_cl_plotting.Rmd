@@ -1,7 +1,7 @@
 ---
 title: "el_cl_plotting"
 author: "layla"
-date: "2025-10-09"
+date: "2025-10-14"
 output: html_document
 ---
 
@@ -36,6 +36,8 @@ library(colorspace)
 library(ggmap)
 library(forcats)
 library(ggridges)
+library(corrplot)
+library(pheatmap)
 ```
 
 
@@ -1647,7 +1649,15 @@ proportions_long %>% ggplot(aes(x=sample_name, y=proportion, fill = cell_type)) 
 ```
 
 
+```{r}
+correlation_matrix <- cor(proportions[, -1])  # exclude sample_name column
+colnames(correlation_matrix) <- cell_type_map[colnames(correlation_matrix)]
+rownames(correlation_matrix) <- cell_type_map[rownames(correlation_matrix)]
+```
 
+```{r}
+corrplot(correlation_matrix, method = "color", type = "upper", order = "hclust", tl.col = "black", tl.srt = 45, addCoef.col = "black", number.cex = 0.5, mar = c(0, 0, 1, 0), title = "Correlations between Cell Type Proportions in Orang Asli")
+```
 
 
 
@@ -1664,6 +1674,86 @@ umap_df %>% ggplot(aes(x=V1, y=V2, color=cell_type_low)) + geom_point() + theme_
 #10x10 L
 ```
 
+
+
+compare 10X and OA sc data 
+-------------------------------------------------------
+
+```{r}
+prop10X = readRDS('out_parallel_13oct25_10X.rds')
+colnames(prop10X)[1] = "sample_name"
+
+setdiff(colnames(proportions), colnames(prop10X))
+
+propOA = proportions %>% dplyr::select(-Megakaryocytes.platelets)
+
+colnames(propOA) <- paste0("OA_", colnames(propOA))
+colnames(prop10X) <- paste0("10X_", colnames(prop10X))
+
+info <- readRDS("meta_final.rds")
+info %<>% dplyr::select(sample_name, monocytes_perc_combine, lympho_perc_combine)
+
+propOA = merge(propOA, info, by.x="OA_sample_name", by.y= "sample_name")
+prop10X = merge(prop10X, info, by.x="10X_sample_name", by.y= "sample_name")
+
+correlation_matrix <- cor(propOA[, -1], prop10X[, -1])  
+#colnames(correlation_matrix) <- cell_type_map[colnames(correlation_matrix)]
+#rownames(correlation_matrix) <- cell_type_map[rownames(correlation_matrix)]
+
+```
+
+
+```{r}
+corrplot(correlation_matrix, method = "color", type = "upper", order = "hclust", tl.col = "black", tl.srt = 45, addCoef.col = "black", number.cex = 0.5, mar = c(0, 0, 1, 0), is.corr = FALSE)
+```
+
+
+
+```{r}
+pheatmap(correlation_matrix, cluster_rows = TRUE, cluster_cols = TRUE, display_numbers = TRUE, number_color = "black",
+  main = "Cross-correlations between OA and 10X proportions")
+```
+
+
+```{r}
+corrplot(cor(propOA[, -1]), method = "color", type = "upper", order = "hclust", tl.col = "black", tl.srt = 45, addCoef.col = "black", number.cex = 0.5, mar = c(0, 0, 1, 0), is.corr = FALSE)
+#12x12 L
+```
+
+```{r}
+corrplot(cor(prop10X[, -1]), method = "color", type = "upper", order = "hclust", tl.col = "black", tl.srt = 45, addCoef.col = "black", number.cex = 0.5, mar = c(0, 0, 1, 0), is.corr = FALSE)
+#12x12 L
+```
+
+
+
+```{r}
+propOA$OA_predicted_monocytes = propOA$OA_Classical.monocytes + propOA$OA_Non.classical.monocytes
+
+propOA$OA_predicted_lymphoctyes = propOA$OA_Age.associated.B.cells + propOA$OA_CD16..NK.cells + propOA$OA_Memory.B.cells + propOA$OA_Naive.B.cells + propOA$OA_Regulatory.T.cells + propOA$OA_Tcm.Naive.cytotoxic.T.cells + propOA$OA_Tcm.Naive.helper.T.cells + propOA$OA_Tem.Effector.helper.T.cells + propOA$OA_Tem.Temra.cytotoxic.T.cells + propOA$OA_Tem.Trm.cytotoxic.T.cells + propOA$OA_MAIT.cells
+
+prop10X$'10X_predicted_monocytes' = prop10X$'10X_Classical.monocytes' + prop10X$'10X_Non.classical.monocytes'
+
+prop10X$'10X_predicted_lymphoctyes' = prop10X$'10X_Age.associated.B.cells' + prop10X$'10X_CD16..NK.cells' + prop10X$'10X_Memory.B.cells' + prop10X$'10X_Naive.B.cells' + prop10X$'10X_Regulatory.T.cells' + prop10X$'10X_Tcm.Naive.cytotoxic.T.cells' + prop10X$'10X_Tcm.Naive.helper.T.cells' + prop10X$'10X_Tem.Effector.helper.T.cells' + prop10X$'10X_Tem.Temra.cytotoxic.T.cells' + prop10X$'10X_Tem.Trm.cytotoxic.T.cells' + prop10X$'10X_MAIT.cells'
+```
+
+
+```{r}
+corrplot(cor(propOA[,c(18:21)]), method = "color", type = "upper", order = "hclust", tl.col = "black", tl.srt = 45, addCoef.col = "black", mar = c(0, 0, 1, 0), is.corr = FALSE, title = "OA single cell as predictor")
+```
+
+
+
+```{r}
+corrplot(cor(prop10X[,c(18:21)]), method = "color", type = "upper", order = "hclust", tl.col = "black", tl.srt = 45, addCoef.col = "black", mar = c(0, 0, 1, 0), is.corr = FALSE, title = "10X single cell as predictor")
+```
+
+
+```{r}
+correlation_matrix <- cor(propOA[,c(18:21)], prop10X[,c(18:21)])  
+pheatmap(correlation_matrix, cluster_rows = TRUE, cluster_cols = TRUE, display_numbers = TRUE, number_color = "black",
+  main = "Cross-correlations between OA and 10X proportions")
+```
 
 
 
