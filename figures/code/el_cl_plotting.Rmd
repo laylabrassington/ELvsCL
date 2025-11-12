@@ -1,7 +1,7 @@
 ---
 title: "el_cl_plotting"
 author: "layla"
-date: "2025-10-14"
+date: "2025-11-10"
 output: html_document
 ---
 
@@ -48,7 +48,7 @@ meta <- readRDS("meta_final.rds")
 ```
 
 ```{r}
-meta %>% ggplot(aes(x=age, fill=rnaseq_sex)) + geom_density(alpha=0.8) + theme_bw(base_size = 20) + scale_fill_manual(values = c("black","goldenrod2")) + labs(x = "Age", y="Density", fill="Sex")
+meta %>% ggplot(aes(x=age, fill=rnaseq_sex)) + geom_density(alpha=0.8) + theme_bw(base_size = 20) + scale_fill_manual(values = c("#17154FFF","#D95E31FF")) + labs(x = "Age", y="Density", fill="Sex")
 
 #L 8x5
 ```
@@ -62,7 +62,7 @@ meta <- readRDS("meta_final.rds")
 ```
 
 ```{r}
-meta %>% ggplot(aes(x=Early_urban_PC1, y=urb_score.y)) + geom_point(color="purple4") + theme_classic(base_size = 20) + labs(x = "Early Life Urbanicity", y = "Current Life Urbanicity")
+meta %>% ggplot(aes(x=Early_urban_PC1, y=urb_score.y)) + geom_point(color="black") + theme_classic(base_size = 20) + labs(x = "Early Life Urbanicity", y = "Current Life Urbanicity")
 #L 6x5
 ```
 
@@ -99,6 +99,15 @@ current_urb_plot<- m +
   ylim(2.5, 6) +
   theme_bw(13); current_urb_plot
 
+current_urb_plot<- m +
+  geom_point(data = current_urb_filt, aes(x = mean_long, y = mean_lat, fill=mean_urb, size=count), color="black", alpha = 0.8, shape=21) +
+  labs(x="Longitude", y="Latitude", size="Sample \n  size", fill="    Adult \n urbanicity \n    score") +
+  scale_fill_gradient(low = "#9DC398", high = "#1D2D1A", breaks = c(2.984, 41.729), labels = c("Low", "High")) + 
+  scale_size_continuous(range = c(5,7)) + 
+  xlim(100.5, 103.5) +
+  ylim(2.5, 6) +
+  theme_bw(13); current_urb_plot
+
 #L 5x5
 ```
 
@@ -111,70 +120,6 @@ tf code
 rm(list = ls())
 ```
 
-
-load TF-target interaction list (from TRRUST)
-```{r}
-tf_targets <- read.delim("trrust_rawdata.human.tsv", header=FALSE, stringsAsFactors=FALSE)
-colnames(tf_targets) <- c("TF", "Target", "Mode", "PubMed")
-tf_targets %<>% filter(Mode %in% c("Activation", "Repression"))
-```
-
-
-load gene data 
-```{r}
-model_out = readRDS("model_out_all_24june25.rds")
-
-model_out$every_urb = model_out$`every_beta_as.numeric(scale(meta$urb_score.y))`
-model_out$every_early = model_out$`every_beta_as.numeric(scale(meta$Early_urban_PC1))`
-model_out$every_age = model_out$every_beta_age_scale
-model_out$every_sex = model_out$every_beta_sex_medicalmale
-
-model_out$padj_urb = p.adjust(model_out$`every_p_value_as.numeric(scale(meta$urb_score.y))`, method = "fdr")
-model_out$padj_early = p.adjust(model_out$`every_p_value_as.numeric(scale(meta$Early_urban_PC1))`, method = "fdr")
-
-
-subset = model_out %>% filter(padj_urb<0.1)
-dim(subset %>% filter(apply(dplyr::select(., every_urb, `sem_beta_as.numeric(scale(meta$urb_score.y))`, `sen_beta_as.numeric(scale(meta$urb_score.y))`, `pm_beta_as.numeric(scale(meta$urb_score.y))`), 1, function(x) all(x > 0) || all(x < 0))))
-urb_genes = subset %>% filter(apply(dplyr::select(., every_urb, `sem_beta_as.numeric(scale(meta$urb_score.y))`, `sen_beta_as.numeric(scale(meta$urb_score.y))`, `pm_beta_as.numeric(scale(meta$urb_score.y))`), 1, function(x) all(x > 0) || all(x < 0)))
-
-subset = model_out %>% filter(padj_early<0.1)
-dim(subset %>% filter(apply(dplyr::select(., every_early, `sem_beta_as.numeric(scale(meta$Early_urban_PC1))`, `sen_beta_as.numeric(scale(meta$Early_urban_PC1))`, `pm_beta_as.numeric(scale(meta$Early_urban_PC1))`), 1, function(x) all(x > 0) || all(x < 0))))
-early_genes = subset %>% filter(apply(dplyr::select(., every_early, `sem_beta_as.numeric(scale(meta$Early_urban_PC1))`, `sen_beta_as.numeric(scale(meta$Early_urban_PC1))`, `pm_beta_as.numeric(scale(meta$Early_urban_PC1))`), 1, function(x) all(x > 0) || all(x < 0)))
-
-current_urb = urb_genes %>% filter(every_urb>0) %>% dplyr::select(every_urb, gene)
-current_rural = urb_genes %>% filter(every_urb<0) %>% dplyr::select(every_urb, gene)
-early_urb = early_genes %>% filter(every_early>0) %>% dplyr::select(every_early, gene)
-early_rural = early_genes %>% filter(every_early<0) %>% dplyr::select(every_early, gene)
-```
-
-
-create a list of target genes for each TF
-```{r}
-tf_list <- split(tf_targets$Target, tf_targets$TF)
-
-#filter to be genes that are significant in any model 
-gene_list = c(urb_genes$gene, early_genes$gene)
-gene_list=gene_list[!duplicated(gene_list)]
-
-filtered_tf_list <- lapply(tf_list, function(genes) {
-  intersect(genes, gene_list)})
-
-filtered_tf_list <- Filter(length, filtered_tf_list)
-
-# Filter TFs to those that:
-# 1. Have >2 targets remaining
-# 2. Are themselves also in the gene_list
-filtered_tf_list <- filtered_tf_list[names(filtered_tf_list) %in% model_out$gene]
-filtered_tf_list <- Filter(function(targets) length(targets) > 2, filtered_tf_list)
-
-# get average number of targets per TF
-summary(sapply(filtered_tf_list, length))
-hist(sapply(filtered_tf_list, length), main="Targets per TF", xlab="Number of Targets", 20)
-
-```
-
-
-adding a filter so that it groups overlapping TFs
 ```{r}
 tf_targets <- read.delim("trrust_rawdata.human.tsv", header=FALSE, stringsAsFactors=FALSE)
 colnames(tf_targets) <- c("TF", "Target", "Mode", "PubMed")
@@ -203,10 +148,7 @@ current_rural = urb_genes %>% filter(every_urb<0) %>% dplyr::select(every_urb, g
 early_urb = early_genes %>% filter(every_early>0) %>% dplyr::select(every_early, gene)
 early_rural = early_genes %>% filter(every_early<0) %>% dplyr::select(every_early, gene)
 
-
 tf_list <- split(tf_targets$Target, tf_targets$TF)
-
-
 
 #filter to be genes that are significant in any model 
 gene_list = c(urb_genes$gene, early_genes$gene)
@@ -217,31 +159,24 @@ filtered_tf_list <- lapply(tf_list, function(genes) {
 
 filtered_tf_list <- Filter(length, filtered_tf_list)
 
-
 # Filter TFs to those that:
 # 1. Have >2 targets remaining
 # 2. Are themselves also in the gene_list
 filtered_tf_list <- filtered_tf_list[names(filtered_tf_list) %in% model_out$gene]
-filtered_tf_list <- Filter(function(targets) length(targets) > 3, filtered_tf_list)
-
-# get average number of targets per TF
-summary(sapply(filtered_tf_list, length))
-hist(sapply(filtered_tf_list, length), main="Targets per TF", xlab="Number of Targets", 20)
-
-
+filtered_tf_list <- Filter(function(targets) length(targets) > 4, filtered_tf_list)
 ```
 
 
-similarity function 
+similarity function to combine TFs
 ```{r}
-# --- 1. Jaccard similarity function ---
+# --- 1. jaccard similarity function ---
 jaccard_sim <- function(a, b) {
   length(intersect(a, b)) / length(union(a, b))
 }
 
 tf_names <- names(filtered_tf_list)
 
-# --- 2. Compute similarity matrix ---
+# --- 2. compute similarity matrix ---
 sim_mat <- matrix(0, nrow = length(tf_names), ncol = length(tf_names),
                   dimnames = list(tf_names, tf_names))
 
@@ -255,164 +190,24 @@ for (i in seq_along(tf_names)) {
   }
 }
 
-# --- 3. Convert similarity to distance ---
+# --- 3. convert similarity to distance ---
 dist_mat <- as.dist(1 - sim_mat)  # 1 - Jaccard similarity
 
-# --- 4. Hierarchical clustering ---
+# --- 4. hierarchical clustering ---
 hc <- hclust(dist_mat, method = "average")  # UPGMA
 
-# --- 5. Cut tree at Jaccard ≥ 0.8 (distance ≤ 0.2) ---
+# --- 5. cut tree at Jaccard ≥ 0.7 (distance ≤ 0.3) ---
 groups <- cutree(hc, h = 0.7)
 
-# --- 6. Collapse TFs within each cluster ---
+# --- 6. collapse TFs within each cluster ---
 collapsed_list <- lapply(split(tf_names, groups), function(tf_group) {
   unique(unlist(filtered_tf_list[tf_group]))
 })
 
-# Optional: give merged names that reflect all TFs in the cluster
+# give merged names that reflect all TFs in the cluster
 names(collapsed_list) <- sapply(split(tf_names, groups), paste, collapse = "_")
 
-# --- 7. Check new distribution ---
-summary(sapply(collapsed_list, length))
-hist(sapply(collapsed_list, length), 
-     main = "Targets per (Collapsed) TF", 
-     xlab = "Number of Targets", 
-     breaks = 20)
 ```
-
-
-
-```{r}
-total_background <- 9993  # Total number of genes in background
-
-# Urban
-your_genes <- current_urb$gene
-results <- lapply(names(collapsed_list), function(tf) {
-  tf_genes <- unique(collapsed_list[[tf]])
-  overlap <- length(intersect(your_genes, tf_genes))
-  only_in_list <- length(setdiff(your_genes, tf_genes))
-  only_in_tf <- length(setdiff(tf_genes, your_genes))
-  neither <- total_background - (overlap + only_in_list + only_in_tf)
-  expected_overlap <- (length(your_genes) * length(tf_genes)) / total_background
-  fold_enrichment <- if (expected_overlap > 0) overlap / expected_overlap else NA
-  fisher_matrix <- matrix(c(overlap, only_in_list, only_in_tf, neither), nrow = 2)
-  fisher_test <- fisher.test(fisher_matrix)
-  odds_ratio <- unname(fisher_test$estimate)
-  data.frame(
-    TF = tf,
-    p.value = fisher_test$p.value,
-    odds_ratio = odds_ratio,
-    overlap = overlap,
-    total_targets = length(tf_genes),
-    expected = expected_overlap,
-    fold_enrichment = fold_enrichment
-  )
-})
-current_urb_tf <- do.call(rbind, results)
-current_urb_tf$adj.p.value <- p.adjust(current_urb_tf$p.value, method = "BH")
-
-# Rural
-your_genes <- current_rural$gene
-results <- lapply(names(collapsed_list), function(tf) {
-  tf_genes <- unique(collapsed_list[[tf]])
-  overlap <- length(intersect(your_genes, tf_genes))
-  only_in_list <- length(setdiff(your_genes, tf_genes))
-  only_in_tf <- length(setdiff(tf_genes, your_genes))
-  neither <- total_background - (overlap + only_in_list + only_in_tf)
-  expected_overlap <- (length(your_genes) * length(tf_genes)) / total_background
-  fold_enrichment <- if (expected_overlap > 0) overlap / expected_overlap else NA
-  fisher_matrix <- matrix(c(overlap, only_in_list, only_in_tf, neither), nrow = 2)
-  fisher_test <- fisher.test(fisher_matrix)
-  odds_ratio <- unname(fisher_test$estimate)
-  data.frame(
-    TF = tf,
-    p.value = fisher_test$p.value,
-    odds_ratio = odds_ratio,
-    overlap = overlap,
-    total_targets = length(tf_genes),
-    expected = expected_overlap,
-    fold_enrichment = fold_enrichment
-  )
-})
-current_rural_tf <- do.call(rbind, results)
-current_rural_tf$adj.p.value <- p.adjust(current_rural_tf$p.value, method = "BH")
-
-# Early Urban
-your_genes <- early_urb$gene
-results <- lapply(names(collapsed_list), function(tf) {
-  tf_genes <- unique(collapsed_list[[tf]])
-  overlap <- length(intersect(your_genes, tf_genes))
-  only_in_list <- length(setdiff(your_genes, tf_genes))
-  only_in_tf <- length(setdiff(tf_genes, your_genes))
-  neither <- total_background - (overlap + only_in_list + only_in_tf)
-  expected_overlap <- (length(your_genes) * length(tf_genes)) / total_background
-  fold_enrichment <- if (expected_overlap > 0) overlap / expected_overlap else NA
-  fisher_matrix <- matrix(c(overlap, only_in_list, only_in_tf, neither), nrow = 2)
-  fisher_test <- fisher.test(fisher_matrix)
-  odds_ratio <- unname(fisher_test$estimate)
-  data.frame(
-    TF = tf,
-    p.value = fisher_test$p.value,
-    odds_ratio = odds_ratio,
-    overlap = overlap,
-    total_targets = length(tf_genes),
-    expected = expected_overlap,
-    fold_enrichment = fold_enrichment
-  )
-})
-early_urb_tf <- do.call(rbind, results)
-early_urb_tf$adj.p.value <- p.adjust(early_urb_tf$p.value, method = "BH")
-
-# Early Rural
-your_genes <- early_rural$gene
-results <- lapply(names(collapsed_list), function(tf) {
-  tf_genes <- unique(collapsed_list[[tf]])
-  overlap <- length(intersect(your_genes, tf_genes))
-  only_in_list <- length(setdiff(your_genes, tf_genes))
-  only_in_tf <- length(setdiff(tf_genes, your_genes))
-  neither <- total_background - (overlap + only_in_list + only_in_tf)
-  expected_overlap <- (length(your_genes) * length(tf_genes)) / total_background
-  fold_enrichment <- if (expected_overlap > 0) overlap / expected_overlap else NA
-  fisher_matrix <- matrix(c(overlap, only_in_list, only_in_tf, neither), nrow = 2)
-  fisher_test <- fisher.test(fisher_matrix)
-  odds_ratio <- unname(fisher_test$estimate)
-  data.frame(
-    TF = tf,
-    p.value = fisher_test$p.value,
-    odds_ratio = odds_ratio,
-    overlap = overlap,
-    total_targets = length(tf_genes),
-    expected = expected_overlap,
-    fold_enrichment = fold_enrichment
-  )
-})
-early_rural_tf <- do.call(rbind, results)
-early_rural_tf$adj.p.value <- p.adjust(early_rural_tf$p.value, method = "BH")
-```
-
-
-```{r}
-current_urb_tf$type = "current_urb"
-current_rural_tf$type = "current_rural"
-early_urb_tf$type = "early_urb"
-early_rural_tf$type = "early_rural"
-
-combined_df = rbind(current_urb_tf, current_rural_tf, early_urb_tf, early_rural_tf)
-```
-
-```{r}
-combined_df_filt = combined_df %>% filter(!odds_ratio=="Inf")
-combined_df_filt = combined_df_filt %>% filter(p.value < 0.1)
-combined_df_filt = combined_df_filt %>% mutate(significance = ifelse(adj.p.value < 0.1, "p.adj < 0.1", "p.value < 0.1"))
-
-combined_df_filt <- combined_df_filt %>%
-  mutate(TF_type = paste(TF, type, sep = "_")) %>%
-  arrange(type, desc(fold_enrichment)) %>%
-  mutate(TF_type = factor(TF_type, levels = unique(TF_type)))
-
-combined_df_filt$TF_label <- combined_df_filt$TF 
-```
-
 
 
 making sure groups are unique
@@ -434,74 +229,116 @@ combn(names(gene_lists), 2, function(x) {
   cat("\nOverlap between", x[1], "and", x[2], ":\n")
   print(overlap)
 })
-```
 
-
-
-re-running but removing overlapping genes 
-```{r}
 all_gene_lists <- list(
   urb = current_urb$gene,
   rural = current_rural$gene,
   early_urb = early_urb$gene,
-  early_rural = early_rural$gene
-)
+  early_rural = early_rural$gene)
 
 # Find genes that are in >1 group
 gene_counts <- table(unlist(all_gene_lists))
 overlapping_genes <- names(gene_counts[gene_counts > 1])
 ```
-
-
-
+one example
 ```{r}
-run_tf_enrichment <- function(gene_vector, tf_list, total_background, exclude_genes = NULL) {
-  # Remove overlapping genes if provided
+total_background <- 9993 
+
+your_genes<-  current_urb$gene
+
+gene_vector <- setdiff(your_genes, overlapping_genes)
+
+tf_genes <- unique(collapsed_list[["NFKB1_RELA"]])
+
+overlap <- length(intersect(gene_vector, tf_genes))
+
+only_in_list <- length(setdiff(gene_vector, tf_genes))
+
+only_in_tf <- length(setdiff(tf_genes, gene_vector))
+
+neither <- total_background - (overlap + only_in_list + only_in_tf)
+
+fisher_matrix <- matrix(c(overlap, only_in_list, only_in_tf, neither), nrow = 2)
+
+fisher_test <- fisher.test(fisher_matrix)
+
+odds_ratio <- unname(fisher_test$estimate)
+p_value <- unname(fisher_test$p.value)
+
+# TF = tf
+# p.value = fisher_test$p.value
+# odds_ratio = odds_ratio
+# overlap = overlap
+# total_targets = length(tf_genes)
+# expected = expected_overlap
+
+```
+
+
+writing function so i don't have to do this one by one 
+```{r}
+run_tf_enrichment <- function(gene_list, collapsed_list, total_background, exclude_genes = NULL) {
+  # Optionally exclude overlapping genes
   if (!is.null(exclude_genes)) {
-    gene_vector <- setdiff(gene_vector, exclude_genes)
+    gene_vector <- setdiff(gene_list, exclude_genes)
+  } else {
+    gene_vector <- gene_list
   }
-  
-  results <- lapply(names(tf_list), function(tf) {
-    tf_genes <- unique(tf_list[[tf]])
-    
+
+  # Initialize results list
+  results <- list()
+
+  # Iterate over all TFs in collapsed_list
+  for (tf in names(collapsed_list)) {
+    tf_genes <- unique(collapsed_list[[tf]])
+
     overlap <- length(intersect(gene_vector, tf_genes))
     only_in_list <- length(setdiff(gene_vector, tf_genes))
     only_in_tf <- length(setdiff(tf_genes, gene_vector))
     neither <- total_background - (overlap + only_in_list + only_in_tf)
-    
-    expected_overlap <- (length(gene_vector) * length(tf_genes)) / total_background
-    fold_enrichment <- if (expected_overlap > 0) overlap / expected_overlap else NA
-    
+
+    # Fisher's exact test
     fisher_matrix <- matrix(c(overlap, only_in_list, only_in_tf, neither), nrow = 2)
     fisher_test <- fisher.test(fisher_matrix)
+
     odds_ratio <- unname(fisher_test$estimate)
-    
-    data.frame(
+    p_value <- unname(fisher_test$p.value)
+
+    # Expected overlap (hypergeometric expectation)
+    expected_overlap <- (length(gene_vector) * length(tf_genes)) / total_background
+
+    # Store results
+    results[[tf]] <- data.frame(
       TF = tf,
-      p.value = fisher_test$p.value,
+      p.value = p_value,
       odds_ratio = odds_ratio,
       overlap = overlap,
+      only_in_list = only_in_list,
+      only_in_tf = only_in_tf, 
+      neither = neither, 
       total_targets = length(tf_genes),
       expected = expected_overlap,
-      fold_enrichment = fold_enrichment
+      stringsAsFactors = FALSE
     )
-  })
-  
-  results_df <- do.call(rbind, results)
-  results_df$adj.p.value <- p.adjust(results_df$p.value, method = "BH")
-  return(results_df)
+  }
+
+  # Combine all TF results into one data frame
+  result_df <- do.call(rbind, results)
+
+  return(result_df)
 }
+
 ```
 
 
-
 ```{r}
-total_background <- 9993  # total number of genes in background
+current_urb_tf <- run_tf_enrichment(gene_list = current_urb$gene, collapsed_list = collapsed_list, total_background = 9993, exclude_genes = overlapping_genes)
 
-current_urb_tf   <- run_tf_enrichment(current_urb$gene,   collapsed_list, total_background, exclude_genes = overlapping_genes)
-current_rural_tf <- run_tf_enrichment(current_rural$gene, collapsed_list, total_background, exclude_genes = overlapping_genes)
-early_urb_tf     <- run_tf_enrichment(early_urb$gene,     collapsed_list, total_background, exclude_genes = overlapping_genes)
-early_rural_tf   <- run_tf_enrichment(early_rural$gene,   collapsed_list, total_background, exclude_genes = overlapping_genes)
+current_rural_tf <- run_tf_enrichment(gene_list = current_rural$gene, collapsed_list = collapsed_list, total_background = 9993, exclude_genes = overlapping_genes)
+
+early_urb_tf <- run_tf_enrichment(gene_list = early_urb$gene, collapsed_list = collapsed_list, total_background = 9993, exclude_genes = overlapping_genes)
+
+early_rural_tf <- run_tf_enrichment(gene_list = early_rural$gene, collapsed_list = collapsed_list, total_background = 9993, exclude_genes = overlapping_genes)
 ```
 
 
@@ -516,24 +353,23 @@ combined_df = rbind(current_urb_tf, current_rural_tf, early_urb_tf, early_rural_
 
 ```{r}
 combined_df_filt = combined_df %>% filter(!odds_ratio=="Inf")
+combined_df_filt$adj.p.value = p.adjust(combined_df_filt$p.value, method="fdr")
 combined_df_filt = combined_df_filt %>% filter(p.value < 0.1)
 combined_df_filt = combined_df_filt %>% mutate(significance = ifelse(adj.p.value < 0.1, "p.adj < 0.1", "p.value < 0.1"))
 
 combined_df_filt <- combined_df_filt %>%
   mutate(TF_type = paste(TF, type, sep = "_")) %>%
-  arrange(type, desc(fold_enrichment)) %>%
+  arrange(type, desc(odds_ratio)) %>%
   mutate(TF_type = factor(TF_type, levels = unique(TF_type)))
 
 combined_df_filt$TF_label <- combined_df_filt$TF 
 ```
 
-
-
 ```{r}
 top5_df <- combined_df_filt %>%
   group_by(type) %>%
   arrange(adj.p.value, .by_group = TRUE) %>%
-  slice_head(n = 7) %>% ungroup()
+  slice_head(n = 5) %>% ungroup()
 
 ggplot(top5_df, aes(x = TF_type, y = log2(odds_ratio), fill = type)) +
   geom_col(color = "black") +
@@ -543,7 +379,6 @@ ggplot(top5_df, aes(x = TF_type, y = log2(odds_ratio), fill = type)) +
   scale_fill_manual(values = c("darkolivegreen", "darkolivegreen3", "dodgerblue3", "skyblue2")) +
   labs(x = "TF", y = "log2(Odds Ratio)")
 ```
-
 
 chart showing TF sharing 
 ```{r}
@@ -560,37 +395,26 @@ ggplot(top5_df, aes(x = type, y = TF, fill = type)) +
   geom_tile(color = "white", width = 0.9, height = 0.9) +
   scale_fill_manual(
     values = c("darkolivegreen", "darkolivegreen3", "dodgerblue3", "skyblue2")) +
-  theme_minimal() +
+  theme_bw() +
   labs(title = "Top 5 TFs per Category", x = "Type", y = "Transcription Factor") +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1), panel.grid = element_blank())
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), panel.grid = element_blank()) 
 
 #L 5x5
 ```
 
-
-```{r}
-ggplot(top5_df, aes(x = type, y = TF, fill = type, alpha = fold_enrichment)) +
-  geom_tile(color = "white", width = 0.9, height = 0.9) +
-  scale_fill_manual(
-    values = c("darkolivegreen", "darkolivegreen3", "dodgerblue3", "skyblue2")) +
-  scale_alpha_continuous(range = c(0.6, 1), name = "Fold Enrichment") +
-  theme_minimal() +
-  labs(title = "Top 5 TFs per Category", x = "Type", y = "Transcription Factor") +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1), panel.grid = element_blank())
-#5x5 L
-```
-
+alpha by odds ratio 
 ```{r}
 ggplot(top5_df, aes(x = type, y = TF, fill = type, alpha = log2(odds_ratio))) +
   geom_tile(color = "white", width = 0.9, height = 0.9) +
   scale_fill_manual(
     values = c("darkolivegreen", "darkolivegreen3", "dodgerblue3", "skyblue2")) +
   scale_alpha_continuous(range = c(0.6, 1), name = "log2(odds ratio)") +
-  theme_minimal() +
+  theme_bw(base_size = 20) +
   labs(title = "Top 5 TFs per Category", x = "Type", y = "Transcription Factor") +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1), panel.grid = element_blank())
-#5x5 L
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+#8x8 L
 ```
+
 
 
 looking at nfkb1_rela targets 
@@ -604,33 +428,7 @@ nfkb_df <- bind_rows(
   data.frame(gene = intersect(current_rural$gene, nfkb_targets), type = "current_rural"),
   data.frame(gene = intersect(early_urb$gene, nfkb_targets),     type = "early_urb"),
   data.frame(gene = intersect(early_rural$gene, nfkb_targets),   type = "early_rural"))
-```
 
-
-dotplot/list style 
-```{r}
-ggplot(nfkb_df, aes(x = type, y = gene, color = type)) +
-  geom_point(size = 4, alpha = 0.8) +
-  scale_color_manual(values = c(
-    "current_rural" = "darkolivegreen",
-    "current_urb"   = "darkolivegreen3",
-    "early_rural"   = "dodgerblue3",
-    "early_urb"     = "skyblue2"
-  )) +
-  theme_minimal() +
-  labs(
-    title = "Genes regulated by NFKB1_RELA",
-    x = "Category",
-    y = "Gene"
-  ) +
-  theme(axis.text.y = element_text(size = 6))
-
-#p 5x5 
-```
-
-
-adding in directionality 
-```{r}
 nfkb_rela_targets <- tf_targets %>%
   filter(TF %in% c("NFKB1", "RELA"))
 
@@ -641,75 +439,9 @@ nfkb_annot <- nfkb_df %>%
         TF = paste(unique(TF), collapse = "+"),
         direction = paste(unique(Mode), collapse = "+"),
         .groups = "drop")
-
-ggplot(nfkb_annot, aes(x = type, y = gene, color = type, shape = direction)) +
-  geom_point(size = 4) +
-  scale_color_manual(values = c(
-    "current_rural" = "darkolivegreen",
-    "current_urb"   = "darkolivegreen3",
-    "early_rural"   = "dodgerblue3",
-    "early_urb"     = "skyblue2")) + 
-  scale_fill_manual(values = c( "darkolivegreen",  "darkolivegreen3", "dodgerblue3", "skyblue2")) +
-  scale_shape_manual(values = c(
-    "Activation"             = 24,  # triangle up
-    "Repression"             = 25,  # triangle down
-    "Unknown"                = 21,  # circle
-    "Activation+Repression"  = 23,  # diamond
-    "Activation+Unknown"     = 22,  # square
-    "Repression+Unknown"     = 8    # star
-  )) +
-  theme_minimal() +
-  labs(
-    title = "NFKB1_RELA target genes by category",
-    x = "Category",
-    y = "Gene",
-    shape = "Direction"
-  ) +
-  theme(axis.text.y = element_text(size = 6))
-
-
-ggplot(nfkb_annot, aes(x = type, y = gene)) +
-  geom_point(aes(shape = direction, fill = type), size = 4, color = "black", alpha = 0.9) +
-  scale_shape_manual(values = c(
-    "Activation"             = 24,  # triangle up
-    "Repression"             = 25,  # triangle down
-    "Unknown"                = 21,  # circle
-    "Activation+Repression"  = 23,  # diamond
-    "Activation+Unknown"     = 22,  # square
-    "Repression+Unknown"     = 8    # star
-  )) +
-  scale_fill_manual(values = c(
-    "current_rural" = "darkolivegreen",
-    "current_urb"   = "darkolivegreen3",
-    "early_rural"   = "dodgerblue3",
-    "early_urb"     = "skyblue2"
-  )) +
-  theme_minimal() +
-  labs(
-    title = "NFKB1_RELA target genes by category",
-    x = "Category",
-    y = "Gene",
-    shape = "Direction",
-    fill = "Category"
-  ) +
-  theme(axis.text.y = element_text(size = 6))
 ```
 
-block style 
-```{r}
-ggplot(nfkb_df, aes(x = type, y = gene, fill = type)) +
-  geom_tile(color = "white", width = 0.9, height = 0.9) +
-  scale_fill_manual(values = c(
-    "current_rural" = "darkolivegreen",
-    "current_urb"   = "darkolivegreen3",
-    "early_rural"   = "dodgerblue3",
-    "early_urb"     = "skyblue2")) +
-  theme_minimal() +
-  labs(title = "Genes regulated by NFKB1_RELA", x = "Category", y = "Gene") +
-  theme(axis.text.y = element_text(size = 6))
 
-#p 5x5 
-```
 
 addinging heirarchial clustering 
 ```{r}
@@ -734,19 +466,6 @@ nfkb_df$gene <- factor(nfkb_df$gene, levels = rownames(mat)[row_order])
 nfkb_df$type <- factor(nfkb_df$type, levels = colnames(mat)[col_order])
 
 # plot
-ggplot(nfkb_df, aes(x = type, y = gene, fill = type, alpha = beta)) +
-  geom_tile(color = "white", width = 0.9, height = 0.9) +
-  scale_fill_manual(values = c(
-    "current_rural" = "darkolivegreen",
-    "current_urb"   = "darkolivegreen3",
-    "early_rural"   = "dodgerblue3",
-    "early_urb"     = "skyblue2")) + 
-  scale_alpha_continuous(range = c(0.6, 1), name = "Effect Size") +
-  theme_minimal() +
-  labs(title = "NFKB1_RELA Targets (clustered)", x = "Category", y = "Gene") +
-  theme(axis.text.y = element_text(size = 6))
-
-
 ggplot(nfkb_df, aes(x = type, y = gene, fill = type)) +
   geom_tile(color = "white", width = 0.9, height = 0.9) +
   scale_fill_manual(values = c(
@@ -754,9 +473,11 @@ ggplot(nfkb_df, aes(x = type, y = gene, fill = type)) +
     "current_urb"   = "darkolivegreen3",
     "early_rural"   = "dodgerblue3",
     "early_urb"     = "skyblue2")) + 
-  theme_minimal(base_size = 20) +
-  labs(title = "NFKB1_RELA Targets (clustered)", x = "Category", y = "Gene")
+  theme_bw(base_size = 20) +
+  labs(title = "NFKB1_RELA Targets", x = "Type", y = "Gene") + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
 ```
+
 
 
 urb rural enrich plot 
@@ -764,6 +485,7 @@ urb rural enrich plot
 
 ```{r}
 rm(list = ls())
+organism = "org.Hs.eg.db"
 ```
 
 ```{r}
@@ -967,10 +689,11 @@ ggplot(df_top, aes(x = Description_clean, y = 0)) +
   geom_point(aes(
     size = Count,
     color = Group,
-    alpha = FoldEnrichment)) +
+    #alpha = FoldEnrichment
+    )) +
   scale_size(range = c(3, 12)) +
   scale_color_manual(
-    values = c("Rural" = "#17154FFF", "Urban" = "#D95E31FF")) +
+    values = c("Rural" = "darkolivegreen", "Urban" = "darkolivegreen3")) +
   scale_alpha_continuous(range = c(0.8, 1)) +
   theme_classic() +
   theme(
@@ -1163,10 +886,11 @@ ggplot(df_top, aes(x = Description_clean, y = 0)) +
   geom_point(aes(
     size = Count,
     color = Group,
-    alpha = FoldEnrichment)) +
+    #alpha = FoldEnrichment
+    )) +
   scale_size(range = c(3, 12)) +
   scale_color_manual(
-    values = c("Rural" = "#17154FFF", "Urban" = "#D95E31FF")) +
+    values = c("Rural" = "dodgerblue3", "Urban" = "skyblue2")) +
   scale_alpha_continuous(range = c(0.8, 1)) +
   theme_classic() +
   theme(
@@ -1242,7 +966,7 @@ model_out %>% ggplot(aes(x=every_urb, y=-log10(`every_p_value_as.numeric(scale(m
 ```{r}
 top_genes_filt = top_genes %>% filter(gene %in% c("PDK4", "LCN10"))
 
-model_out %>% ggplot(aes(x=every_urb, y=-log10(`every_p_value_as.numeric(scale(meta$urb_score.y))`))) + geom_point(aes(color = as.factor(sig_current), alpha = 0.25)) + theme_minimal(base_size = 20) + xlab("logfc") + ylab("-log10(p-value)") + scale_color_manual(values = c("grey", "darkgreen"))  + theme(legend.position = "none") + geom_label_repel(data = top_genes_filt, aes(label = gene), size = 3, box.padding = 0.8, label.size = 0.2, label.r = unit(0.15, "lines"), max.overlaps = 20) +  ggtitle("Current Lifestyle Genes") + ylim(0,10)
+model_out %>% ggplot(aes(x=every_urb, y=-log10(`every_p_value_as.numeric(scale(meta$urb_score.y))`))) + geom_point(aes(color = as.factor(sig_current), alpha = 0.25)) + theme_minimal(base_size = 20) + xlab("logfc") + ylab("-log10(p-value)") + scale_color_manual(values = c("grey", "darkgreen"))  + theme(legend.position = "none") + geom_label_repel(data = top_genes_filt, aes(label = gene), size = 6, box.padding = 0.8, label.size = 0.2, label.r = unit(0.15, "lines"), max.overlaps = 20) +  ggtitle("Current Lifestyle Genes") + ylim(0,10) + xlim(-0.5, 0.5)
 
 #L 5x5
 ```
@@ -1260,7 +984,7 @@ model_out %>% ggplot(aes(x=every_early, y=-log10(`every_p_value_as.numeric(scale
 ```{r}
 top_genes_filt = top_genes %>% filter(gene %in% c("CXCL1", "CPT2"))
 
-model_out %>% ggplot(aes(x=every_early, y=-log10(`every_p_value_as.numeric(scale(meta$Early_urban_PC1))`))) + geom_point(aes(color = as.factor(sig_early), alpha = 0.25)) + theme_minimal(base_size = 20) + xlab("logfc") + ylab("-log10(p-value)") + scale_color_manual(values = c("grey", "steelblue"))  + theme(legend.position = "none") + geom_label_repel(data = top_genes_filt, aes(label = gene), size = 3, box.padding = 0.8, label.size = 0.2, label.r = unit(0.15, "lines"), max.overlaps = 20) +  ggtitle("Early Lifestyle Genes") + ylim(0,10)
+model_out %>% ggplot(aes(x=every_early, y=-log10(`every_p_value_as.numeric(scale(meta$Early_urban_PC1))`))) + geom_point(aes(color = as.factor(sig_early), alpha = 0.25)) + theme_minimal(base_size = 20) + xlab("logfc") + ylab("-log10(p-value)") + scale_color_manual(values = c("grey", "steelblue"))  + theme(legend.position = "none") + geom_label_repel(data = top_genes_filt, aes(label = gene), size = 6, box.padding = 0.8, label.size = 0.2, label.r = unit(0.15, "lines"), max.overlaps = 20) +  ggtitle("Early Lifestyle Genes") + ylim(0,10) + xlim(-0.5, 0.5)
 
 #L 5x5
 ```
@@ -1289,6 +1013,12 @@ plot_data %>% filter(abs(value) <0.15) %>% ggplot(aes(x = abs(value), fill = var
 ```
 
 
+```{r}
+plot_data %>% ggplot(aes(x= variable, y = abs(value), fill = variable)) + geom_violin(alpha=0.8)+ geom_boxplot(width=0.08)  + scale_fill_manual(values = c("steelblue", "darkgreen")) + theme_bw(base_size = 20) + theme(legend.position = "none", axis.title = element_blank())  + ggtitle("Gene Expression")
+
+#5x4 p
+```
+
 cytokines 
 -------------------------------------------
 ```{r}
@@ -1296,7 +1026,6 @@ rm(list = ls())
 ```
 
 large metadata was made 18apr25 using the el score code
-
 ```{r message=FALSE, warning=FALSE}
 df_filtered=read.delim('~/Desktop/vandy/lea lab/oa/plasma/18apr25_OA_merged.txt')
 biomarkers <- read_csv("~/Desktop/vandy/lea lab/oa/plasma/biomarkers_plasma_1.csv")
@@ -1395,11 +1124,11 @@ manual_order <- c(
   "Final.IL.6..pg.ml.",
   "Final.IL.1beta..pg.ml.",
   "Final.IL12p70..pg.ml.",
-  "Final.IL.4..pg.ml.",
   "Final.TNF.alpha..pg.ml.",
   "Final.IFN.gamma..pg.ml.",
   "Final.IL.10..pg.ml.",
-  "Final.IL.13..pg.ml.")
+  "Final.IL.13..pg.ml.", 
+  "Final.IL.4..pg.ml.")
 
 model_summary_df$response <- factor(model_summary_df$response, levels = rev(manual_order))
 ```
@@ -1410,12 +1139,22 @@ model_summary_df$response <- factor(model_summary_df$response, levels = rev(manu
 model_summary_df %>%
   filter(term %in% c("scale(urb_score)", "scale(Early_urban_PC1)")) %>%
   ggplot(aes(x = estimate, y = response, 
-             fill = direction, alpha = term)) +
+             fill = term, alpha = significance)) +
   geom_col(position = position_dodge(width = 0.7), width = 0.8) +
   geom_vline(xintercept = 0, linetype = "dashed") +
-  scale_fill_manual(values = c("pro" = "red4", "anti" = "#1B9E77")) +
-  scale_alpha_manual(values = c("scale(urb_score)" = 1, "scale(Early_urban_PC1)" = 0.5)) +
-  labs(x = "Beta Estimate", y = "", fill = "Type", alpha = "Term") +
+  scale_fill_manual(values = c("scale(urb_score)" = "darkgreen", "scale(Early_urban_PC1)" = "steelblue")) +
+  scale_alpha_manual(values = c("FDR < 0.1" = 1, "p value < 0.1" = 0.8, "ns" = 0.3)) +
+  labs(x = "Beta Estimate", y = "", fill = "Term", alpha = "Significance") +
+  theme_minimal(base_size = 20)
+
+
+model_summary_df %>%
+  filter(term %in% c("scale(urb_score)", "scale(Early_urban_PC1)")) %>%
+  ggplot(aes(x = estimate, y = response, fill = term)) +
+  geom_col(position = position_dodge(width = 0.7), width = 0.8) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  scale_fill_manual(values = c("scale(urb_score)" = "darkgreen", "scale(Early_urban_PC1)" = "steelblue")) +
+  labs(x = "Beta Estimate", y = "", fill = "Term") +
   theme_minimal(base_size = 20)
 
 #L 15x7
@@ -1433,8 +1172,24 @@ model_summary_df %>% filter(term %in% c("scale(urb_score)", "scale(Early_urban_P
 ```
 
 
+```{r}
+model_summary_df %>% filter(term %in% c("scale(urb_score)", "scale(Early_urban_PC1)")) %>% filter(!significance=="ns")  %>% ggplot(aes(x = term, y=abs(estimate),fill = term)) + geom_violin(alpha=0.8)+ geom_boxplot(width=0.08)  + scale_fill_manual(values = c("steelblue", "darkgreen")) + theme_bw(base_size = 20) + theme(legend.position = "none", axis.title = element_blank())  + ggtitle("Cytokine")
+
+#5x4 p
+```
 
 
+```{r}
+bio_merge  %>% ggplot(aes(x=urb_score, y=CRP..ng.ml.)) + geom_point(color="darkgreen") + theme_bw(base_size = 20) + geom_smooth(method = lm, color="black") + labs(x = "Current Lifestyle Score", y = "CRP")
+
+#5x5 L
+```
+
+```{r}
+bio_merge  %>% ggplot(aes(x=Early_urban_PC1, y=CRP..ng.ml.)) + geom_point(color="steelblue") + theme_bw(base_size = 20) + geom_smooth(method = lm, color="black") + labs(x = "Early Lifestyle Score", y = "CRP")
+
+#5x5 L
+```
 
 cell type proportions modeling 
 ----------------------------------------------------------------------
@@ -1581,6 +1336,11 @@ plot_df_filt %>% filter(p.adj<0.1) %>% ggplot(aes(x = abs(estimate), fill = term
 #L 5x4
 ```
 
+```{r}
+plot_df_filt %>% filter(p.adj<0.1) %>% ggplot(aes(x= term, y = abs(estimate), fill = term)) + geom_violin(alpha=0.8)+ geom_boxplot(width=0.08)  + scale_fill_manual(values = c("steelblue", "darkgreen")) + theme_bw(base_size = 20) + theme(legend.position = "none", axis.title = element_blank())  + ggtitle("Cell Type")
+
+#5x4 p
+```
 
 ```{r}
 df  %>% ggplot(aes(x=urb_score.y, y=Tem.Trm.cytotoxic.T.cells)) + geom_point(color="darkgreen") + theme_bw(base_size = 20) + geom_smooth(method = lm, color="black") + labs(x = "Current Lifestyle Score", y = "CD8+ Memory Cytotoxic T")
@@ -1631,10 +1391,20 @@ proportions_long <- proportions_long %>%
 proportions_long <- proportions_long %>%
   mutate(cell_type = forcats::fct_rev(cell_type))
 
+my_palette <- c(
+  "#003464FF", #T cells
+  "#F38630FF", #ILC
+  "#018571",  #monocyte
+  "#4F3855FF", #b cell
+  "#F8D564FF", #plasma
+  "#2C5724FF", #platelets
+  "#9E3D22"  #DC
+)
+
 proportions_long %>% ggplot(aes(x = proportion, y = cell_type, fill = cell_group)) +
   geom_density_ridges(scale = 1, alpha = 1, color = "white") +
   labs(x = "Proportion", y = "Cell Type", title = "Distribution of Cell Type Proportions", fill = "Cell Group") +
-  theme_minimal(base_size = 16) + xlim(0, 0.15)
+  theme_minimal(base_size = 16) + xlim(0, 0.15) + scale_fill_manual(values = my_palette)
 #L 7.5x5
 ```
 
@@ -1666,11 +1436,74 @@ umap
 
 ```{r}
 umap_df=readRDS("umap_plot_df_8oct25.rds")
+
+#remove cell types with only 1 cell 
+umap_df %<>% filter(!cell_type_high %in% c("Double-positive thymocytes", "Early MK", "Epithelial cells"))
+
+cell_group_map <- c(
+  "Regulatory T cells" = "T cells", "Tcm/Naive cytotoxic T cells" = "T cells", "Tcm/Naive helper T cells" = "T cells",
+  "Tem/Effector helper T cells" = "T cells", "Tem/Temra cytotoxic T cells" = "T cells", "Tem/Trm cytotoxic T cells" = "T cells",
+  "MAIT cells" = "T cells",
+  "CD16+ NK cells" = "ILC",
+  "Classical monocytes" = "Monocytes", "Non-classical monocytes" = "Monocytes", "Mono-mac" = "Monocytes", "Macrophages" = "Monocytes",
+  "Memory B cells" = "B cells", "Naive B cells" = "B cells", "Age-associated B cells" = "B cells",
+  "Plasma cells" = "Plasma",
+  "Megakaryocytes/platelets" = "Platelets",
+  "DC2" = "DC", "pDC" = "DC")
+
+umap_df <- umap_df %>%
+  mutate(cell_group = recode(cell_type_low, !!!cell_group_map))
 ```
 
+color palettes
 ```{r}
-umap_df %>% ggplot(aes(x=V1, y=V2, color=cell_type_high)) + geom_point() + theme_bw(base_size = 20) + theme(legend.position = "none")
-umap_df %>% ggplot(aes(x=V1, y=V2, color=cell_type_low)) + geom_point() + theme_bw(base_size = 20) + theme(legend.position = "none")
+
+#had to change order to go with order of cell groups
+
+my_palette <- c(
+  "#4F3855FF", #b cell
+  "#F38630FF", #ILC
+  "#018571",  #monocyte
+  "#9E3D22",  #DC
+  "#003464FF", #T cells
+  "#2C5724FF", #platelets
+  "#F8D564FF" #plasma
+)
+```
+
+
+```{r}
+umap_df %>% ggplot(aes(x=V1, y=V2, color=cell_group)) + geom_point() + theme_bw(base_size = 20) + theme(legend.position = "none") + scale_color_manual(values = my_palette)
+#10x10 L
+```
+
+
+```{r}
+#cells plot in alphabetical order
+my_palette <- c(
+"#B89CBF", 
+"#F38630FF", 
+"#018571", 
+"#9E3D22", 
+"#003464FF", 
+"#2C5724FF", 
+"#90659A", 
+"#4F3855FF", 
+"#01D0B1", 
+"#F8D564FF",
+"#8AC6FF", 
+"#2E9AFF", 
+"#0084FF", 
+"#006CD1", 
+"#5CB0FF", 
+"#0054A3",
+"#DA7052"
+)
+```
+
+
+```{r}
+umap_df %>% ggplot(aes(x=V1, y=V2, color=cell_type_low)) + geom_point() + theme_bw(base_size = 20) + scale_color_manual(values = my_palette) + theme(legend.position = "none")
 #10x10 L
 ```
 
@@ -1754,6 +1587,130 @@ correlation_matrix <- cor(propOA[,c(18:21)], prop10X[,c(18:21)])
 pheatmap(correlation_matrix, cluster_rows = TRUE, cluster_cols = TRUE, display_numbers = TRUE, number_color = "black",
   main = "Cross-correlations between OA and 10X proportions")
 ```
+
+
+looking at comparison of cytokines and CD8+ cytotoxic memory 
+--------------------------------------------------------------
+
+```{r}
+rm(list = ls())
+```
+
+
+set up cytokine data (same as above)
+```{r message=FALSE, warning=FALSE}
+df_filtered=read.delim('~/Desktop/vandy/lea lab/oa/plasma/18apr25_OA_merged.txt')
+biomarkers <- read_csv("~/Desktop/vandy/lea lab/oa/plasma/biomarkers_plasma_1.csv")
+
+columns_to_average <- names(biomarkers)[7:23]
+bio_avg <- biomarkers %>%
+  group_by(Sample.ID) %>%
+  summarise(across(all_of(columns_to_average), mean), .groups = "drop")
+#ignore the warnings it's just mad about taking the average of an NA 
+
+meta_small = df_filtered %>% filter(tid %in% bio_avg$Sample.ID)
+bio_merge = merge(df_filtered, bio_avg, by.x = "tid", by.y = "Sample.ID")
+
+meta_small %<>% filter(!age<18)
+bio_merge %<>% filter(!age<18)
+bio_avg %<>% filter(Sample.ID %in% bio_merge$tid)
+
+bio_avg %<>% dplyr::select(-CTXI..ng.ml., -Final.Osteocalcin..pg.ml., -PLT_leptin_LBP, -Sample_leptin_LBP)
+bio_merge %<>% dplyr::select(-CTXI..ng.ml., -Final.Osteocalcin..pg.ml., -PLT_leptin_LBP, -Sample_leptin_LBP)
+
+cytokine_cols <- names(bio_avg)[2:14]
+# 1. Log-transform (with small constant to avoid log(0))
+bio_merge[cytokine_cols] <- log2(bio_merge[cytokine_cols] + 0.1)
+
+# 2. Z-score scale (center and scale each column)
+bio_merge[cytokine_cols] <- scale(bio_merge[cytokine_cols])
+```
+
+
+
+set up cell proportion info (same as above)
+```{r}
+proportions = readRDS('out_parallel_9oct25.rds')
+colnames(proportions)[1] = "sample_name"
+
+info <- readRDS("meta_final.rds")
+info %<>% dplyr::select(urb_score.y, Early_urban_PC1, age_scale, sex_medical, sample_name)
+
+info$urb_score.y = as.numeric(scale(info$urb_score.y))
+info$Early_urban_PC1 = as.numeric(scale(info$Early_urban_PC1))
+info$sex_medical = ifelse(info$sex_medical=="female", 0, 1)
+
+df = left_join(info, proportions, by="sample_name")
+```
+
+join 
+```{r}
+bio_merge2 = bio_merge %>% dplyr::select(tid, Early_urban_PC1, urb_score, all_of(cytokine_cols))
+bio_merge2$sample_name = paste0("X", bio_merge2$tid)
+
+df2 = df %>% filter(sample_name %in% bio_merge2$sample_name)
+
+merge_all = left_join(df2, bio_merge2, by="sample_name")
+```
+
+looking at relationships btw cell types and cytokines 
+```{r}
+p1 = merge_all %>% ggplot(aes(x=urb_score.y, y=Final.IL.2..pg.ml.)) + geom_point() + geom_smooth(method = lm, color="darkgreen") + theme_bw()
+p2 = merge_all %>% ggplot(aes(x=urb_score.y, y=Tem.Trm.cytotoxic.T.cells)) + geom_point() + geom_smooth(method = lm, color="darkgreen") + theme_bw()
+
+p3 = merge_all %>% ggplot(aes(x=Early_urban_PC1.x, y=Final.IL.2..pg.ml.)) + geom_point() + geom_smooth(method = lm, color="steelblue") + theme_bw()
+p4 = merge_all %>% ggplot(aes(x=Early_urban_PC1.x, y=Tem.Trm.cytotoxic.T.cells)) + geom_point() + geom_smooth(method = lm, color="steelblue") + theme_bw()
+
+cowplot::plot_grid(p1, p2, p3, p4)
+
+#7x5 L 
+```
+
+```{r}
+p1 = merge_all %>% ggplot(aes(x=urb_score.y, y=Final.IL12p70..pg.ml.)) + geom_point() + geom_smooth(method = lm, color="darkgreen") + theme_bw()
+p2 = merge_all %>% ggplot(aes(x=urb_score.y, y=Tem.Trm.cytotoxic.T.cells)) + geom_point() + geom_smooth(method = lm, color="darkgreen") + theme_bw()
+
+p3 = merge_all %>% ggplot(aes(x=Early_urban_PC1.x, y=Final.IL12p70..pg.ml.)) + geom_point() + geom_smooth(method = lm, color="steelblue") + theme_bw()
+p4 = merge_all %>% ggplot(aes(x=Early_urban_PC1.x, y=Tem.Trm.cytotoxic.T.cells)) + geom_point() + geom_smooth(method = lm, color="steelblue") + theme_bw()
+
+cowplot::plot_grid(p1, p2, p3, p4)
+
+#7x5 L
+```
+
+```{r}
+p1 = bio_merge2 %>% ggplot(aes(x=urb_score, y=Final.IL.2..pg.ml.)) + geom_point() + geom_smooth(method = lm, color="darkgreen") + theme_bw()
+p2 = df %>% ggplot(aes(x=urb_score.y, y=Tem.Trm.cytotoxic.T.cells)) + geom_point() + geom_smooth(method = lm, color="darkgreen") + theme_bw()
+
+p3 = bio_merge2 %>% ggplot(aes(x=Early_urban_PC1, y=Final.IL.2..pg.ml.)) + geom_point() + geom_smooth(method = lm, color="steelblue") + theme_bw()
+p4 = df %>% ggplot(aes(x=Early_urban_PC1, y=Tem.Trm.cytotoxic.T.cells)) + geom_point() + geom_smooth(method = lm, color="steelblue") + theme_bw()
+
+cowplot::plot_grid(p1, p2, p3, p4)
+#7x5 L
+```
+
+
+```{r}
+p1 = bio_merge2 %>% ggplot(aes(x=urb_score, y=Final.IL12p70..pg.ml.)) + geom_point() + geom_smooth(method = lm, color="darkgreen") + theme_bw()
+p2 = df %>% ggplot(aes(x=urb_score.y, y=Tem.Trm.cytotoxic.T.cells)) + geom_point() + geom_smooth(method = lm, color="darkgreen") + theme_bw()
+
+p3 = bio_merge2 %>% ggplot(aes(x=Early_urban_PC1, y=Final.IL12p70..pg.ml.)) + geom_point() + geom_smooth(method = lm, color="steelblue") + theme_bw()
+p4 = df %>% ggplot(aes(x=Early_urban_PC1, y=Tem.Trm.cytotoxic.T.cells)) + geom_point() + geom_smooth(method = lm, color="steelblue") + theme_bw()
+
+cowplot::plot_grid(p1, p2, p3, p4)
+#7x5 L
+```
+
+
+```{r}
+summary(lm(Tem.Trm.cytotoxic.T.cells ~ Final.IL12p70..pg.ml. + urb_score.y + Early_urban_PC1.x + age_scale + sex_medical, data=merge_all))
+```
+
+```{r}
+summary(lm(Tem.Trm.cytotoxic.T.cells ~ Final.IL.2..pg.ml. + urb_score.y + Early_urban_PC1.x + age_scale + sex_medical, data=merge_all))
+```
+
+
 
 
 
