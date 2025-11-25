@@ -3,28 +3,24 @@
 ----------------------------------------
 
 
-### data files: 
-#### meta_final.rds 
-final metadata for modeling 
+### key data files: 
+#### meta_data_13nov25_AFTER_group_fixes.rds 
+final metadata for modeling and plotting 
 
 #### K.rds
 kinship matrix for modeling 
 
-#### exp.rds 
+#### exp_13nov25_batch_effects_removed.rds  
 was too big for github (contact Layla for file) 
 
 #### model_outs
-  model results for all ancestry groups and files for urban and rural genes
+  model results
 
 
 
 ### script files: 
 #### making_metadata_clean.Rmd
-  combined file for making the metadata for modeling 
-  (initial data download from github April 17th 2025) 
+   script for making the data for modeling  
 
-#### ancestry_ge_model_clean.Rmd
-  code for running GE models for 3 major ancestry groups and everyone 
-
- 
-  
+#### GE_modeling_clean.Rmd
+  code for running GE models
