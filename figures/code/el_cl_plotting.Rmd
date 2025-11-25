@@ -1,16 +1,16 @@
 ---
-title: "el_cl_plotting"
+title: "el_cl_plotting2"
 author: "layla"
-date: "2025-11-10"
+date: "2025-11-25"
 output: html_document
 ---
 
 ```{r}
-setwd("~/Desktop/vandy/lea lab/oa/el_cl/figures/")
+setwd("~/Desktop/vandy/lea lab/oa/el_cl/figures/post_wgs_resolution/")
 ```
 
 
-packages 
+### packages ---
 ```{r message=FALSE, warning=FALSE}
 library(readr)
 library(magrittr)
@@ -38,31 +38,38 @@ library(forcats)
 library(ggridges)
 library(corrplot)
 library(pheatmap)
+library(AnnotationDbi)
+library(UpSetR)
+library(emmeans)
+library(readxl)
+library(biomaRt)
+library(rrvgo)
 ```
 
 
-age and sex plot 
--------------------------------------
+
+### age and sex plot ---
+ 
 ```{r}
-meta <- readRDS("meta_final.rds")
+meta <- readRDS("meta_data_13nov25_AFTER_group_fixes.rds")
 ```
 
 ```{r}
-meta %>% ggplot(aes(x=age, fill=rnaseq_sex)) + geom_density(alpha=0.8) + theme_bw(base_size = 20) + scale_fill_manual(values = c("#17154FFF","#D95E31FF")) + labs(x = "Age", y="Density", fill="Sex")
+meta %>% ggplot(aes(x=age, fill=sex_medical)) + geom_density(alpha=0.8) + theme_bw(base_size = 20) + scale_fill_manual(values = c("#17154FFF","#D95E31FF")) + labs(x = "Age", y="Density", fill="Sex")
 
 #L 8x5
 ```
 
 
-map and EL vs CL plot
---------------------------------------
+
+### map and EL vs CL plot ---
 
 ```{r}
-meta <- readRDS("meta_final.rds")
+meta <- readRDS("meta_data_13nov25_AFTER_group_fixes.rds")
 ```
 
 ```{r}
-meta %>% ggplot(aes(x=Early_urban_PC1, y=urb_score.y)) + geom_point(color="black") + theme_classic(base_size = 20) + labs(x = "Early Life Urbanicity", y = "Current Life Urbanicity")
+meta %>% ggplot(aes(x=Early_urban_PC1, y=urb_score)) + geom_point(color="black") + theme_classic(base_size = 20) + labs(x = "Early Life Urbanicity", y = "Current Life Urbanicity")
 #L 6x5
 ```
 
@@ -113,40 +120,30 @@ current_urb_plot<- m +
 
 
 
-tf code
---------------------------------------
+### tf code ---
 
 ```{r}
 rm(list = ls())
 ```
 
 ```{r}
-tf_targets <- read.delim("trrust_rawdata.human.tsv", header=FALSE, stringsAsFactors=FALSE)
+tf_targets <- read.delim("~/Desktop/vandy/lea lab/oa/el_cl/figures/trrust_rawdata.human.tsv", header=FALSE, stringsAsFactors=FALSE)
 colnames(tf_targets) <- c("TF", "Target", "Mode", "PubMed")
 
+model_out <- readRDS("lmm_grm_evryne_grp_fixed_effect_13nov25.rds")
 
-model_out = readRDS("model_out_all_24june25.rds")
-model_out$every_urb = model_out$`every_beta_as.numeric(scale(meta$urb_score.y))`
-model_out$every_early = model_out$`every_beta_as.numeric(scale(meta$Early_urban_PC1))`
-model_out$every_age = model_out$every_beta_age_scale
-model_out$every_sex = model_out$every_beta_sex_medicalmale
+model_out$gene = rownames(model_out)
 
-model_out$padj_urb = p.adjust(model_out$`every_p_value_as.numeric(scale(meta$urb_score.y))`, method = "fdr")
-model_out$padj_early = p.adjust(model_out$`every_p_value_as.numeric(scale(meta$Early_urban_PC1))`, method = "fdr")
+model_out$padj_urb = p.adjust(model_out$p_value_urb_scale, method = "fdr")
+model_out$padj_early = p.adjust(model_out$p_value_early_scale, method = "fdr")
 
+urb_genes = model_out %>% filter(padj_urb<0.1)
+early_genes = model_out %>% filter(padj_early<0.1)
 
-subset = model_out %>% filter(padj_urb<0.1)
-dim(subset %>% filter(apply(dplyr::select(., every_urb, `sem_beta_as.numeric(scale(meta$urb_score.y))`, `sen_beta_as.numeric(scale(meta$urb_score.y))`, `pm_beta_as.numeric(scale(meta$urb_score.y))`), 1, function(x) all(x > 0) || all(x < 0))))
-urb_genes = subset %>% filter(apply(dplyr::select(., every_urb, `sem_beta_as.numeric(scale(meta$urb_score.y))`, `sen_beta_as.numeric(scale(meta$urb_score.y))`, `pm_beta_as.numeric(scale(meta$urb_score.y))`), 1, function(x) all(x > 0) || all(x < 0)))
-
-subset = model_out %>% filter(padj_early<0.1)
-dim(subset %>% filter(apply(dplyr::select(., every_early, `sem_beta_as.numeric(scale(meta$Early_urban_PC1))`, `sen_beta_as.numeric(scale(meta$Early_urban_PC1))`, `pm_beta_as.numeric(scale(meta$Early_urban_PC1))`), 1, function(x) all(x > 0) || all(x < 0))))
-early_genes = subset %>% filter(apply(dplyr::select(., every_early, `sem_beta_as.numeric(scale(meta$Early_urban_PC1))`, `sen_beta_as.numeric(scale(meta$Early_urban_PC1))`, `pm_beta_as.numeric(scale(meta$Early_urban_PC1))`), 1, function(x) all(x > 0) || all(x < 0)))
-
-current_urb = urb_genes %>% filter(every_urb>0) %>% dplyr::select(every_urb, gene)
-current_rural = urb_genes %>% filter(every_urb<0) %>% dplyr::select(every_urb, gene)
-early_urb = early_genes %>% filter(every_early>0) %>% dplyr::select(every_early, gene)
-early_rural = early_genes %>% filter(every_early<0) %>% dplyr::select(every_early, gene)
+current_urb = urb_genes %>% filter(beta_urb_scale>0) %>% dplyr::select(beta_urb_scale, gene)
+current_rural = urb_genes %>% filter(beta_urb_scale<0) %>% dplyr::select(beta_urb_scale, gene)
+early_urb = early_genes %>% filter(beta_early_scale>0) %>% dplyr::select(beta_early_scale, gene)
+early_rural = early_genes %>% filter(beta_early_scale<0) %>% dplyr::select(beta_early_scale, gene)
 
 tf_list <- split(tf_targets$Target, tf_targets$TF)
 
@@ -154,8 +151,7 @@ tf_list <- split(tf_targets$Target, tf_targets$TF)
 gene_list = c(urb_genes$gene, early_genes$gene)
 gene_list=gene_list[!duplicated(gene_list)]
 
-filtered_tf_list <- lapply(tf_list, function(genes) {
-  intersect(genes, gene_list)})
+filtered_tf_list <- lapply(tf_list, function(genes) {intersect(genes, gene_list)})
 
 filtered_tf_list <- Filter(length, filtered_tf_list)
 
@@ -240,43 +236,22 @@ all_gene_lists <- list(
 gene_counts <- table(unlist(all_gene_lists))
 overlapping_genes <- names(gene_counts[gene_counts > 1])
 ```
-one example
+
+
+
 ```{r}
-total_background <- 9993 
+genes = data.frame(model_out$gene)
 
-your_genes<-  current_urb$gene
-
-gene_vector <- setdiff(your_genes, overlapping_genes)
-
-tf_genes <- unique(collapsed_list[["NFKB1_RELA"]])
-
-overlap <- length(intersect(gene_vector, tf_genes))
-
-only_in_list <- length(setdiff(gene_vector, tf_genes))
-
-only_in_tf <- length(setdiff(tf_genes, gene_vector))
-
-neither <- total_background - (overlap + only_in_list + only_in_tf)
-
-fisher_matrix <- matrix(c(overlap, only_in_list, only_in_tf, neither), nrow = 2)
-
-fisher_test <- fisher.test(fisher_matrix)
-
-odds_ratio <- unname(fisher_test$estimate)
-p_value <- unname(fisher_test$p.value)
-
-# TF = tf
-# p.value = fisher_test$p.value
-# odds_ratio = odds_ratio
-# overlap = overlap
-# total_targets = length(tf_genes)
-# expected = expected_overlap
+genes$current_rural <- ifelse(genes$model_out.gene %in% g1 & !(genes$model_out.gene %in% overlapping_genes), 1, 0)
+genes$current_urb <- ifelse(genes$model_out.gene %in% g2 & !(genes$model_out.gene %in% overlapping_genes), 1, 0)
+genes$early_rural <- ifelse(genes$model_out.gene %in% g3 & !(genes$model_out.gene %in% overlapping_genes), 1, 0)
+genes$early_urb <- ifelse(genes$model_out.gene %in% g4 & !(genes$model_out.gene %in% overlapping_genes), 1, 0)
 
 ```
 
 
-writing function so i don't have to do this one by one 
-```{r}
+
+```{r eval=FALSE}
 run_tf_enrichment <- function(gene_list, collapsed_list, total_background, exclude_genes = NULL) {
   # Optionally exclude overlapping genes
   if (!is.null(exclude_genes)) {
@@ -327,7 +302,6 @@ run_tf_enrichment <- function(gene_list, collapsed_list, total_background, exclu
 
   return(result_df)
 }
-
 ```
 
 
@@ -415,6 +389,15 @@ ggplot(top5_df, aes(x = type, y = TF, fill = type, alpha = log2(odds_ratio))) +
 #8x8 L
 ```
 
+```{r}
+ggplot(top5_df, aes(x = type, y = TF, fill = type)) +
+  geom_tile(color = "white", width = 0.9, height = 0.9) +
+  scale_fill_manual(
+    values = c("darkolivegreen", "darkolivegreen3", "dodgerblue3", "skyblue2")) +
+  theme_bw(base_size = 20) +
+  labs(title = "Top 5 TFs per Category", x = "Type", y = "Transcription Factor") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
 
 
 looking at nfkb1_rela targets 
@@ -446,10 +429,10 @@ nfkb_annot <- nfkb_df %>%
 addinging heirarchial clustering 
 ```{r}
 nfkb_df <- bind_rows(
-  current_urb  %>% filter(gene %in% nfkb_targets)  %>% transmute(gene, type = "current_urb",  beta = every_urb),
-  current_rural %>% filter(gene %in% nfkb_targets) %>% transmute(gene, type = "current_rural", beta = every_urb),
-  early_urb   %>% filter(gene %in% nfkb_targets)   %>% transmute(gene, type = "early_urb",   beta = every_early),
-  early_rural %>% filter(gene %in% nfkb_targets)   %>% transmute(gene, type = "early_rural", beta = every_early))
+  current_urb  %>% filter(gene %in% nfkb_targets)  %>% transmute(gene, type = "current_urb",  beta = beta_urb_scale),
+  current_rural %>% filter(gene %in% nfkb_targets) %>% transmute(gene, type = "current_rural", beta = beta_urb_scale),
+  early_urb   %>% filter(gene %in% nfkb_targets)   %>% transmute(gene, type = "early_urb",   beta = beta_early_scale),
+  early_rural %>% filter(gene %in% nfkb_targets)   %>% transmute(gene, type = "early_rural", beta = beta_early_scale))
 ```
 
 ```{r}
@@ -480,8 +463,8 @@ ggplot(nfkb_df, aes(x = type, y = gene, fill = type)) +
 
 
 
-urb rural enrich plot 
-------------------------------------
+ 
+### urb rural enrich plot ---
 
 ```{r}
 rm(list = ls())
@@ -494,29 +477,27 @@ set.seed(24)
 
 read in model results 
 ```{r}
-model_out <- readRDS("model_out_all_24june25.rds")
+model_out <- readRDS("lmm_grm_evryne_grp_fixed_effect_13nov25.rds")
 
-model_out$every_urb = model_out$`every_beta_as.numeric(scale(meta$urb_score.y))`
-model_out$every_early = model_out$`every_beta_as.numeric(scale(meta$Early_urban_PC1))`
-model_out$every_age = model_out$every_beta_age_scale
-model_out$every_sex = model_out$every_beta_sex_medicalmale
+model_out$gene = rownames(model_out)
 
-model_out$padj_urb = p.adjust(model_out$`every_p_value_as.numeric(scale(meta$urb_score.y))`, method = "fdr")
-model_out$padj_early = p.adjust(model_out$`every_p_value_as.numeric(scale(meta$Early_urban_PC1))`, method = "fdr")
+model_out$padj_urb = p.adjust(model_out$p_value_urb_scale, method = "fdr")
+model_out$padj_early = p.adjust(model_out$p_value_early_scale, method = "fdr")
 
-subset = model_out %>% filter(padj_urb<0.1)
-dim(subset %>% filter(apply(dplyr::select(., every_urb, `sem_beta_as.numeric(scale(meta$urb_score.y))`, `sen_beta_as.numeric(scale(meta$urb_score.y))`, `pm_beta_as.numeric(scale(meta$urb_score.y))`), 1, function(x) all(x > 0) || all(x < 0))))
-urb_genes = subset %>% filter(apply(dplyr::select(., every_urb, `sem_beta_as.numeric(scale(meta$urb_score.y))`, `sen_beta_as.numeric(scale(meta$urb_score.y))`, `pm_beta_as.numeric(scale(meta$urb_score.y))`), 1, function(x) all(x > 0) || all(x < 0)))
+urb_genes = model_out %>% filter(padj_urb<0.1)
+early_genes = model_out %>% filter(padj_early<0.1)
 
-subset = model_out %>% filter(padj_early<0.1)
-dim(subset %>% filter(apply(dplyr::select(., every_early, `sem_beta_as.numeric(scale(meta$Early_urban_PC1))`, `sen_beta_as.numeric(scale(meta$Early_urban_PC1))`, `pm_beta_as.numeric(scale(meta$Early_urban_PC1))`), 1, function(x) all(x > 0) || all(x < 0))))
-early_genes = subset %>% filter(apply(dplyr::select(., every_early, `sem_beta_as.numeric(scale(meta$Early_urban_PC1))`, `sen_beta_as.numeric(scale(meta$Early_urban_PC1))`, `pm_beta_as.numeric(scale(meta$Early_urban_PC1))`), 1, function(x) all(x > 0) || all(x < 0)))
+current_urb = urb_genes %>% filter(beta_urb_scale>0) %>% dplyr::select(beta_urb_scale, gene)
+current_rural = urb_genes %>% filter(beta_urb_scale<0) %>% dplyr::select(beta_urb_scale, gene)
+early_urb = early_genes %>% filter(beta_early_scale>0) %>% dplyr::select(beta_early_scale, gene)
+early_rural = early_genes %>% filter(beta_early_scale<0) %>% dplyr::select(beta_early_scale, gene)
+
 ```
 
 
 CL urban, background (all genes), test (all CL urban genes)
 ```{r}
-test= subset(urb_genes, urb_genes$every_urb>0)$gene
+test= subset(urb_genes, urb_genes$beta_urb_scale>0)$gene
 back<-model_out$gene
 
 GO <- enrichGO(gene = test,
@@ -548,7 +529,7 @@ dotplot(filtered_urban, showCategory=10, font.size=10)
 
 CL rural, background (all genes), test (all CL rural genes)
 ```{r}
-test= subset(urb_genes, urb_genes$every_urb<0)$gene
+test= subset(urb_genes, urb_genes$beta_urb_scale<0)$gene
 back<-model_out$gene
 
 GO <- enrichGO(gene = test,
@@ -580,7 +561,7 @@ dotplot(filtered_rural, showCategory=10, font.size=10)
 
 CL urban, background (all genes), test (significant CL urban genes)
 ```{r}
-test= subset(model_out, model_out$padj_urb<0.1 & model_out$every_urb>0)$gene
+test= subset(model_out, model_out$padj_urb<0.1 & model_out$beta_urb_scale>0)$gene
 back<-model_out$gene
 
 GO <- enrichGO(gene = test,
@@ -614,7 +595,7 @@ dotplot(filtered_urban, showCategory=10, font.size=10)
 
 CL rural, background (all genes), test (significant CL rural genes)
 ```{r}
-test= subset(model_out, model_out$padj_urb<0.1 & model_out$every_urb<0)$gene
+test= subset(model_out, model_out$padj_urb<0.1 & model_out$beta_urb_scale<0)$gene
 back<-model_out$gene
 
 GO <- enrichGO(gene = test,
@@ -666,18 +647,18 @@ df_top <- df_top %>%
 
 manual_order <- c(
   # Rural top 5
-  "regulation of B cell receptor signaling pathway",
-  "regulation of antigen receptor-mediated signaling pathway",
-  "antigen receptor-mediated signaling pathway",
-  "regulation of leukocyte activation",
-  "T cell activation",
+  "enzyme-linked receptor protein signaling pathway",
+  "regulation of small GTPase mediated signal transduction",
+  "adenylate cyclase-modulating G protein-coupled receptor signaling pathway",
+  "adenylate cyclase-activating G protein-coupled receptor signaling pathway",
+  "lens development in camera-type eye",
   
   # Urban top 5
+  "organic acid catabolic process",
+  "carboxylic acid catabolic process",
   "small molecule catabolic process",
-  "carboxylic acid metabolic process",
-  "purine-containing compound metabolic process",
-  "nucleoside phosphate metabolic process",
-  "nucleobase-containing small molecule metabolic process")
+  "monocarboxylic acid metabolic process",
+  "carboxylic acid metabolic process")
 
 # Apply to factor
 df_top <- df_top %>%
@@ -708,16 +689,89 @@ ggplot(df_top, aes(x = Description_clean, y = 0)) +
     color = "Group",
     alpha = "Fold Enrichment")
 
-#L 6x5
+#L 8x7
 ```
 
 
+```{r}
+urb_simMatrix <- calculateSimMatrix(urban_df$ID, org.Hs.eg.db, ont="BP")
+urb_id_scores <- setNames(-log10(urban_df$p.adjust), urban_df$ID)
+urb_reduced <- reduceSimMatrix(urb_simMatrix,
+                     urb_id_scores,
+                     threshold = 0.7,   # higher = bigger clusters
+                     orgdb = org.Hs.eg.db)
+treemapPlot(urb_reduced)
+#saveRDS(urb_reduced, file = "~/Desktop/vandy/lea lab/oa/el_cl/figures/post_wgs_resolution/CL_urb_reduced_24nov25.rds")
+```
+
+```{r}
+rural_simMatrix <- calculateSimMatrix(rural_df$ID, org.Hs.eg.db, ont="BP")
+rural_id_scores <- setNames(-log10(rural_df$p.adjust), rural_df$ID)
+rural_reduced <- reduceSimMatrix(rural_simMatrix,
+                     rural_id_scores,
+                     threshold = 0.7,   # higher = bigger clusters
+                     orgdb = org.Hs.eg.db)
+treemapPlot(rural_reduced)
+#saveRDS(rural_reduced, file = "~/Desktop/vandy/lea lab/oa/el_cl/figures/post_wgs_resolution/CL_rural_reduced_24nov25.rds")
+```
+
+```{r}
+urb_reduced <- readRDS("~/Desktop/vandy/lea lab/oa/el_cl/figures/post_wgs_resolution/CL_urb_reduced_24nov25.rds")
+rural_reduced <- readRDS("~/Desktop/vandy/lea lab/oa/el_cl/figures/post_wgs_resolution/CL_rural_reduced_24nov25.rds")
+
+urban_top_counts <- urb_reduced %>% count(parentTerm, name = "n_terms") %>% arrange(desc(n_terms)) %>% slice_max(n_terms, n = 5)
+urban_top_counts$group = "Urban"
+
+rural_top_counts <- rural_reduced %>% count(parentTerm, name = "n_terms") %>% arrange(desc(n_terms)) %>% slice_max(n_terms, n = 5)
+rural_top_counts$group = "Rural"
+
+df_top = rbind(urban_top_counts, rural_top_counts)
+
+manual_order <- c(
+  # Rural top 5
+  "T cell costimulation",
+  "coronary vasculature morphogenesis",
+  "regulation of activated T cell proliferation",
+  "regulation of cellular response to growth factor stimulus",
+  "positive regulation of protein localization to membrane",
+  
+  # Urban top 5
+  "negative regulation of hydrolase activity", 
+  "endothelial cell migration",
+  "response to bacterial lipoprotein",
+  "tumor necrosis factor production",
+  "nucleoside phosphate metabolic process")
+
+# Apply to factor
+df_top <- df_top %>%
+  mutate(parentTerm = factor(parentTerm, levels = manual_order))
 
 
+ggplot(df_top, aes(x = parentTerm, y = 0)) +
+  geom_point(aes(size = n_terms, color = group)) +
+  scale_size(range = c(3, 12)) +
+  scale_color_manual(
+    values = c("Rural" = "darkolivegreen", "Urban" = "darkolivegreen3")) +
+  scale_alpha_continuous(range = c(0.8, 1)) +
+  theme_classic() +
+  theme(
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.title.y = element_blank(),
+    axis.text.x = element_text(angle = 75, hjust = 1, size = 12),
+    panel.grid = element_blank()) +
+  labs(
+    x = NULL, y = NULL,
+    size = "Gene Count",
+    color = "Group")
+```
+
+
+----------------------------------------------------------------------------------------------------------------------------
 
 EL urban, background (all genes), test (all EL urban genes)
 ```{r}
-test= subset(early_genes, early_genes$every_early>0)$gene
+test= subset(early_genes, early_genes$beta_early_scale>0)$gene
 back<-model_out$gene
 
 GO <- enrichGO(gene = test,
@@ -749,7 +803,7 @@ dotplot(GO, showCategory=10, font.size=10)
 
 EL rural, background (all genes), test (all EL rural genes)
 ```{r}
-test= subset(early_genes, early_genes$every_early<0)$gene
+test= subset(early_genes, early_genes$beta_early_scale<0)$gene
 back<-model_out$gene
 
 GO <- enrichGO(gene = test,
@@ -782,7 +836,7 @@ dotplot(GO, showCategory=10, font.size=10)
 
 EL urban, background (all genes), test (significant EL urban genes)
 ```{r}
-test= subset(model_out, model_out$padj_early<0.1 & model_out$every_early>0)$gene
+test= subset(model_out, model_out$padj_early<0.1 & model_out$beta_early_scale>0)$gene
 back<-model_out$gene
 
 GO <- enrichGO(gene = test,
@@ -813,7 +867,7 @@ dotplot(GO, showCategory=10, font.size=10)
 
 EL rural, background (all genes), test (significant EL rural genes)
 ```{r}
-test= subset(model_out, model_out$padj_early<0.1 & model_out$every_early<0)$gene
+test= subset(model_out, model_out$padj_early<0.1 & model_out$beta_early_scale<0)$gene
 back<-model_out$gene
 
 GO <- enrichGO(gene = test,
@@ -862,19 +916,18 @@ df_top <- df_top %>%
 
 manual_order <- c(
   # Rural top 5
-  "glycoside catabolic process",
-  "norepinephrine secretion",
-  "T cell mediated cytotoxicity",
-  "regulation of T cell mediated cytotoxicity",
-  "bone development",
-  
+  "regulation of immune effector process",
+  "regulation of body fluid levels",
+  "hemostasis",
+  "platelet aggregation",
+  "exocytic process",
   
   # Urban top 5
-  "'de novo' protein folding",
-  "chaperone-mediated protein folding",
+  "chaperone-mediated autophagy",
+  "'de novo' post-translational protein folding",
   "response to unfolded protein",
-  "protein folding",
-  "cellular response to lipopolysaccharide")
+  "response to topologically incorrect protein",
+  "cellular response to lipid")
 
 # Apply to factor
 df_top <- df_top %>%
@@ -908,47 +961,107 @@ ggplot(df_top, aes(x = Description_clean, y = 0)) +
 #L 6x5
 ```
 
+```{r}
+urb_simMatrix <- calculateSimMatrix(urban_df$ID, org.Hs.eg.db, ont="BP")
+urb_id_scores <- setNames(-log10(urban_df$p.adjust), urban_df$ID)
+urb_reduced <- reduceSimMatrix(urb_simMatrix,
+                     urb_id_scores,
+                     threshold = 0.7,   # higher = bigger clusters
+                     orgdb = org.Hs.eg.db)
+treemapPlot(urb_reduced)
+#saveRDS(urb_reduced, file = "~/Desktop/vandy/lea lab/oa/el_cl/figures/post_wgs_resolution/EL_urb_reduced_25nov25.rds")
+```
+
+```{r}
+rural_simMatrix <- calculateSimMatrix(rural_df$ID, org.Hs.eg.db, ont="BP")
+rural_id_scores <- setNames(-log10(rural_df$p.adjust), rural_df$ID)
+rural_reduced <- reduceSimMatrix(rural_simMatrix,
+                     rural_id_scores,
+                     threshold = 0.7,   # higher = bigger clusters
+                     orgdb = org.Hs.eg.db)
+treemapPlot(rural_reduced)
+#saveRDS(rural_reduced, file = "~/Desktop/vandy/lea lab/oa/el_cl/figures/post_wgs_resolution/EL_rural_reduced_25nov25.rds")
+```
+
+```{r}
+urb_reduced <- readRDS("~/Desktop/vandy/lea lab/oa/el_cl/figures/post_wgs_resolution/EL_urb_reduced_25nov25.rds")
+rural_reduced <- readRDS("~/Desktop/vandy/lea lab/oa/el_cl/figures/post_wgs_resolution/EL_rural_reduced_25nov25.rds")
+
+urban_top_counts <- urb_reduced %>% count(parentTerm, name = "n_terms") %>% arrange(desc(n_terms)) %>% slice_max(n_terms, n = 5)
+urban_top_counts$group = "Urban"
+
+rural_top_counts <- rural_reduced %>% count(parentTerm, name = "n_terms") %>% arrange(desc(n_terms)) %>% slice_max(n_terms, n = 5)
+rural_top_counts$group = "Rural"
+
+df_top = rbind(urban_top_counts, rural_top_counts)
+
+manual_order <- c(
+  # Rural top 5
+  "regulation of B cell differentiation",
+  "interleukin-6 production",
+  "cardiac septum morphogenesis",
+  "positive regulation of lymphocyte proliferation",
+  "regulation of T cell apoptotic process",
+  
+  # Urban top 5
+  "smooth muscle cell proliferation",
+  "iron import into cell",
+  "regulation of protein import into nucleus",
+  "negative regulation of cytokine production",
+  "alpha-beta T cell activation")
+
+# Apply to factor
+df_top <- df_top %>%
+  mutate(parentTerm = factor(parentTerm, levels = manual_order))
+
+
+ggplot(df_top, aes(x = parentTerm, y = 0)) +
+  geom_point(aes(size = n_terms, color = group)) +
+  scale_size(range = c(3, 12)) +
+  scale_color_manual(
+    values = c("Rural" = "dodgerblue3", "Urban" = "skyblue2")) +
+  scale_alpha_continuous(range = c(0.8, 1)) +
+  theme_classic() +
+  theme(
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.title.y = element_blank(),
+    axis.text.x = element_text(angle = 75, hjust = 1, size = 12),
+    panel.grid = element_blank()) +
+  labs(
+    x = NULL, y = NULL,
+    size = "Gene Count",
+    color = "Group")
+```
 
 
 
 
 
-gene expression volcano plots
--------------------------------------------
+```{r}
+cnetplot(filtered_urban, foldChange = NULL, showCategory = 15)
+```
+
+
+
+### gene expression volcano plots ---
+
 ```{r}
 rm(list = ls())
 ```
 
+read in model results 
 ```{r}
-model_out <- readRDS("model_out_all_24june25.rds")
-```
+model_out <- readRDS("lmm_grm_evryne_grp_fixed_effect_13nov25.rds")
 
-```{r}
-model_out$every_urb = model_out$`every_beta_as.numeric(scale(meta$urb_score.y))`
-model_out$every_early = model_out$`every_beta_as.numeric(scale(meta$Early_urban_PC1))`
-model_out$every_age = model_out$every_beta_age_scale
-model_out$every_sex = model_out$every_beta_sex_medicalmale
-```
+model_out$gene = rownames(model_out)
 
-```{r}
-model_out$padj_urb = p.adjust(model_out$`every_p_value_as.numeric(scale(meta$urb_score.y))`, method = "fdr")
-model_out$padj_early = p.adjust(model_out$`every_p_value_as.numeric(scale(meta$Early_urban_PC1))`, method = "fdr")
-```
+model_out$padj_urb = p.adjust(model_out$p_value_urb_scale, method = "fdr")
+model_out$padj_early = p.adjust(model_out$p_value_early_scale, method = "fdr")
 
+urb_genes = model_out %>% filter(padj_urb<0.1)
+early_genes = model_out %>% filter(padj_early<0.1)
 
-```{r}
-subset = model_out %>% filter(padj_urb<0.1)
-dim(subset %>% filter(apply(dplyr::select(., every_urb, `sem_beta_as.numeric(scale(meta$urb_score.y))`, `sen_beta_as.numeric(scale(meta$urb_score.y))`, `pm_beta_as.numeric(scale(meta$urb_score.y))`), 1, function(x) all(x > 0) || all(x < 0))))
-urb_genes = subset %>% filter(apply(dplyr::select(., every_urb, `sem_beta_as.numeric(scale(meta$urb_score.y))`, `sen_beta_as.numeric(scale(meta$urb_score.y))`, `pm_beta_as.numeric(scale(meta$urb_score.y))`), 1, function(x) all(x > 0) || all(x < 0)))
-
-subset = model_out %>% filter(padj_early<0.1)
-dim(subset %>% filter(apply(dplyr::select(., every_early, `sem_beta_as.numeric(scale(meta$Early_urban_PC1))`, `sen_beta_as.numeric(scale(meta$Early_urban_PC1))`, `pm_beta_as.numeric(scale(meta$Early_urban_PC1))`), 1, function(x) all(x > 0) || all(x < 0))))
-early_genes = subset %>% filter(apply(dplyr::select(., every_early, `sem_beta_as.numeric(scale(meta$Early_urban_PC1))`, `sen_beta_as.numeric(scale(meta$Early_urban_PC1))`, `pm_beta_as.numeric(scale(meta$Early_urban_PC1))`), 1, function(x) all(x > 0) || all(x < 0)))
-```
-
-
-
-```{r}
 model_out$sig_current = ifelse(model_out$padj_urb<0.1, 1, 0)
 model_out$sig_early = ifelse(model_out$padj_early<0.1, 1, 0)
 ```
@@ -956,17 +1069,17 @@ model_out$sig_early = ifelse(model_out$padj_early<0.1, 1, 0)
 
 ```{r}
 top_genes <- model_out[model_out$sig_current == 1, ]
-top_genes <- top_genes[order(top_genes$`every_p_value_as.numeric(scale(meta$urb_score.y))`, -abs(top_genes$every_urb)), ][1:10, ]
+top_genes <- top_genes[order(top_genes$p_value_urb_scale, -abs(top_genes$beta_urb_scale)), ][1:10, ]
 
-model_out %>% ggplot(aes(x=every_urb, y=-log10(`every_p_value_as.numeric(scale(meta$urb_score.y))`))) + geom_point(aes(color = as.factor(sig_current), alpha = 0.25)) + theme_minimal(base_size = 20) + xlab("logfc") + ylab("-log10(p-value)") + scale_color_manual(values = c("grey", "darkgreen"))  + theme(legend.position = "none") + geom_label_repel(data = top_genes, aes(label = gene), size = 3, box.padding = 0.8, label.size = 0.2, label.r = unit(0.15, "lines"), max.overlaps = 20) +  ggtitle("Current Lifestyle Genes") + ylim(0,10)
+model_out %>% ggplot(aes(x=beta_urb_scale, y=-log10(p_value_urb_scale))) + geom_point(aes(color = as.factor(sig_current), alpha = 0.25)) + theme_minimal(base_size = 20) + xlab("logfc") + ylab("-log10(p-value)") + scale_color_manual(values = c("grey", "darkgreen"))  + theme(legend.position = "none") + geom_label_repel(data = top_genes, aes(label = gene), size = 3, box.padding = 0.8, label.size = 0.2, label.r = unit(0.15, "lines"), max.overlaps = 20) +  ggtitle("Current Lifestyle Genes") + ylim(0,10)
 
 #L 5x5
 ```
 
 ```{r}
-top_genes_filt = top_genes %>% filter(gene %in% c("PDK4", "LCN10"))
+top_genes_filt = model_out %>% filter(gene %in% c("PDK4", "LCN10"))
 
-model_out %>% ggplot(aes(x=every_urb, y=-log10(`every_p_value_as.numeric(scale(meta$urb_score.y))`))) + geom_point(aes(color = as.factor(sig_current), alpha = 0.25)) + theme_minimal(base_size = 20) + xlab("logfc") + ylab("-log10(p-value)") + scale_color_manual(values = c("grey", "darkgreen"))  + theme(legend.position = "none") + geom_label_repel(data = top_genes_filt, aes(label = gene), size = 6, box.padding = 0.8, label.size = 0.2, label.r = unit(0.15, "lines"), max.overlaps = 20) +  ggtitle("Current Lifestyle Genes") + ylim(0,10) + xlim(-0.5, 0.5)
+model_out %>% ggplot(aes(x=beta_urb_scale, y=-log10(p_value_urb_scale))) + geom_point(aes(color = as.factor(sig_current), alpha = 0.25)) + theme_minimal(base_size = 20) + xlab("logfc") + ylab("-log10(p-value)") + scale_color_manual(values = c("grey", "darkgreen"))  + theme(legend.position = "none") + geom_label_repel(data = top_genes_filt, aes(label = gene), size = 6, box.padding = 0.8, label.size = 0.2, label.r = unit(0.15, "lines"), max.overlaps = 20) +  ggtitle("Current Lifestyle Genes") + ylim(0,10) + xlim(-0.5, 0.5)
 
 #L 5x5
 ```
@@ -974,17 +1087,17 @@ model_out %>% ggplot(aes(x=every_urb, y=-log10(`every_p_value_as.numeric(scale(m
 
 ```{r}
 top_genes <- model_out[model_out$sig_early == 1, ]
-top_genes <- top_genes[order(top_genes$`every_p_value_as.numeric(scale(meta$Early_urban_PC1))`, -abs(top_genes$every_early)), ][1:10, ]
+top_genes <- top_genes[order(top_genes$p_value_early_scale, -abs(top_genes$beta_early_scale)), ][1:10, ]
 
-model_out %>% ggplot(aes(x=every_early, y=-log10(`every_p_value_as.numeric(scale(meta$Early_urban_PC1))`))) + geom_point(aes(color = as.factor(sig_early), alpha = 0.25)) + theme_minimal(base_size = 20) + xlab("logfc") + ylab("-log10(p-value)") + scale_color_manual(values = c("grey", "steelblue"))  + theme(legend.position = "none") + geom_label_repel(data = top_genes, aes(label = gene), size = 3, box.padding = 0.8, label.size = 0.2, label.r = unit(0.15, "lines"), max.overlaps = 20) +  ggtitle("Early Lifestyle Genes") + ylim(0,10)
+model_out %>% ggplot(aes(x=beta_early_scale, y=-log10(p_value_early_scale))) + geom_point(aes(color = as.factor(sig_early), alpha = 0.25)) + theme_minimal(base_size = 20) + xlab("logfc") + ylab("-log10(p-value)") + scale_color_manual(values = c("grey", "steelblue"))  + theme(legend.position = "none") + geom_label_repel(data = top_genes, aes(label = gene), size = 3, box.padding = 0.8, label.size = 0.2, label.r = unit(0.15, "lines"), max.overlaps = 20) +  ggtitle("Early Lifestyle Genes") + ylim(0,10)
 
 #L 5x5
 ```
 
 ```{r}
-top_genes_filt = top_genes %>% filter(gene %in% c("CXCL1", "CPT2"))
+top_genes_filt = model_out %>% filter(gene %in% c("CXCL1", "CPT2"))
 
-model_out %>% ggplot(aes(x=every_early, y=-log10(`every_p_value_as.numeric(scale(meta$Early_urban_PC1))`))) + geom_point(aes(color = as.factor(sig_early), alpha = 0.25)) + theme_minimal(base_size = 20) + xlab("logfc") + ylab("-log10(p-value)") + scale_color_manual(values = c("grey", "steelblue"))  + theme(legend.position = "none") + geom_label_repel(data = top_genes_filt, aes(label = gene), size = 6, box.padding = 0.8, label.size = 0.2, label.r = unit(0.15, "lines"), max.overlaps = 20) +  ggtitle("Early Lifestyle Genes") + ylim(0,10) + xlim(-0.5, 0.5)
+model_out %>% ggplot(aes(x=beta_early_scale, y=-log10(p_value_early_scale))) + geom_point(aes(color = as.factor(sig_early), alpha = 0.25)) + theme_minimal(base_size = 20) + xlab("logfc") + ylab("-log10(p-value)") + scale_color_manual(values = c("grey", "steelblue"))  + theme(legend.position = "none") + geom_label_repel(data = top_genes_filt, aes(label = gene), size = 6, box.padding = 0.8, label.size = 0.2, label.r = unit(0.15, "lines"), max.overlaps = 20) +  ggtitle("Early Lifestyle Genes") + ylim(0,10) + xlim(-0.5, 0.5)
 
 #L 5x5
 ```
@@ -995,7 +1108,7 @@ gene_list = c(urb_genes$gene, early_genes$gene)
 gene_list=gene_list[!duplicated(gene_list)]
 
 plot_data <- model_out %>%
-  dplyr::select(every_urb, every_early) %>%
+  dplyr::select(beta_urb_scale, beta_early_scale) %>%
   tidyr::pivot_longer(cols = everything(),names_to = "variable", values_to = "value")
 
 plot_data %>% filter(abs(value) <0.10) %>% ggplot(aes(x = abs(value), fill = variable)) +
@@ -1004,7 +1117,7 @@ plot_data %>% filter(abs(value) <0.10) %>% ggplot(aes(x = abs(value), fill = var
 
 
 plot_data <- model_out %>% filter(gene %in% gene_list) %>%
-  dplyr::select(every_urb, every_early) %>%
+  dplyr::select(beta_urb_scale, beta_early_scale) %>%
   tidyr::pivot_longer(cols = everything(),names_to = "variable", values_to = "value")
 
 plot_data %>% filter(abs(value) <0.15) %>% ggplot(aes(x = abs(value), fill = variable)) +
@@ -1019,8 +1132,8 @@ plot_data %>% ggplot(aes(x= variable, y = abs(value), fill = variable)) + geom_v
 #5x4 p
 ```
 
-cytokines 
--------------------------------------------
+### cytokines ---
+
 ```{r}
 rm(list = ls())
 ```
@@ -1191,8 +1304,8 @@ bio_merge  %>% ggplot(aes(x=Early_urban_PC1, y=CRP..ng.ml.)) + geom_point(color=
 #5x5 L
 ```
 
-cell type proportions modeling 
-----------------------------------------------------------------------
+### cell type proportions modeling ---
+
 ```{r}
 rm(list = ls())
 ```
@@ -1431,8 +1544,7 @@ corrplot(correlation_matrix, method = "color", type = "upper", order = "hclust",
 
 
 
-umap 
--------------------------------------------------------
+### umap ---
 
 ```{r}
 umap_df=readRDS("umap_plot_df_8oct25.rds")
@@ -1509,8 +1621,7 @@ umap_df %>% ggplot(aes(x=V1, y=V2, color=cell_type_low)) + geom_point() + theme_
 
 
 
-compare 10X and OA sc data 
--------------------------------------------------------
+### compare 10X and OA sc data ---
 
 ```{r}
 prop10X = readRDS('out_parallel_13oct25_10X.rds')
@@ -1589,126 +1700,178 @@ pheatmap(correlation_matrix, cluster_rows = TRUE, cluster_cols = TRUE, display_n
 ```
 
 
-looking at comparison of cytokines and CD8+ cytotoxic memory 
---------------------------------------------------------------
+### twas ---
 
 ```{r}
 rm(list = ls())
 ```
 
+get gene/disease pairs from ptwas 
+```{r}
+#read in gene/disease pairs 
+gene_disease = read.delim("~/Desktop/vandy/lea lab/oa/el_cl/figures/13059_2020_2026_MOESM3_ESM.txt", sep=' ', header = F)
+gene_disease = gene_disease[-1,-c(5:9)]
+colnames(gene_disease) = c("trait", "gene", "most_sig_tissue", "multi_tissue_pval")
 
-set up cytokine data (same as above)
-```{r message=FALSE, warning=FALSE}
-df_filtered=read.delim('~/Desktop/vandy/lea lab/oa/plasma/18apr25_OA_merged.txt')
-biomarkers <- read_csv("~/Desktop/vandy/lea lab/oa/plasma/biomarkers_plasma_1.csv")
+#need to add in gene name 
+ens_ids <- gene_disease$gene
+ens_ids <- sub("\\..*$", "", ens_ids)  # remove anything after the first dot
+symbols <- mapIds(
+  org.Hs.eg.db,
+  keys = ens_ids,
+  keytype = "ENSEMBL",
+  column = "SYMBOL",
+  multiVals = "first")
 
-columns_to_average <- names(biomarkers)[7:23]
-bio_avg <- biomarkers %>%
-  group_by(Sample.ID) %>%
-  summarise(across(all_of(columns_to_average), mean), .groups = "drop")
-#ignore the warnings it's just mad about taking the average of an NA 
+gene_disease$id_shortened = sub("\\..*$", "", gene_disease$gene)
+gene_disease$gene_name <- symbols[gene_disease$id_shortened]
 
-meta_small = df_filtered %>% filter(tid %in% bio_avg$Sample.ID)
-bio_merge = merge(df_filtered, bio_avg, by.x = "tid", by.y = "Sample.ID")
+#remove entries that don't have gene names 
+gene_disease_sub = gene_disease %>% filter(!is.na(gene_name)) 
 
-meta_small %<>% filter(!age<18)
-bio_merge %<>% filter(!age<18)
-bio_avg %<>% filter(Sample.ID %in% bio_merge$tid)
-
-bio_avg %<>% dplyr::select(-CTXI..ng.ml., -Final.Osteocalcin..pg.ml., -PLT_leptin_LBP, -Sample_leptin_LBP)
-bio_merge %<>% dplyr::select(-CTXI..ng.ml., -Final.Osteocalcin..pg.ml., -PLT_leptin_LBP, -Sample_leptin_LBP)
-
-cytokine_cols <- names(bio_avg)[2:14]
-# 1. Log-transform (with small constant to avoid log(0))
-bio_merge[cytokine_cols] <- log2(bio_merge[cytokine_cols] + 0.1)
-
-# 2. Z-score scale (center and scale each column)
-bio_merge[cytokine_cols] <- scale(bio_merge[cytokine_cols])
+# filter 
+inclusion = read_excel("~/Desktop/vandy/lea lab/oa/el_cl/figures/post_wgs_resolution/twas_inclusion.xlsx")
+inclusion %<>% filter(include==1)
+gene_disease_sub %<>% filter(trait %in% inclusion$ID)
 ```
 
 
-
-set up cell proportion info (same as above)
+get list of our genes 
 ```{r}
-proportions = readRDS('out_parallel_9oct25.rds')
-colnames(proportions)[1] = "sample_name"
+model_out <- readRDS("lmm_grm_evryne_grp_fixed_effect_13nov25.rds")
 
-info <- readRDS("meta_final.rds")
-info %<>% dplyr::select(urb_score.y, Early_urban_PC1, age_scale, sex_medical, sample_name)
+model_out$gene = rownames(model_out)
 
-info$urb_score.y = as.numeric(scale(info$urb_score.y))
-info$Early_urban_PC1 = as.numeric(scale(info$Early_urban_PC1))
-info$sex_medical = ifelse(info$sex_medical=="female", 0, 1)
+model_out$padj_urb = p.adjust(model_out$p_value_urb_scale, method = "fdr")
+model_out$padj_early = p.adjust(model_out$p_value_early_scale, method = "fdr")
 
-df = left_join(info, proportions, by="sample_name")
+urb_genes = model_out %>% filter(padj_urb<0.1)
+early_genes = model_out %>% filter(padj_early<0.1)
+
+current_urb = urb_genes %>% filter(beta_urb_scale>0) %>% dplyr::select(beta_urb_scale, gene)
+current_rural = urb_genes %>% filter(beta_urb_scale<0) %>% dplyr::select(beta_urb_scale, gene)
+early_urb = early_genes %>% filter(beta_early_scale>0) %>% dplyr::select(beta_early_scale, gene)
+early_rural = early_genes %>% filter(beta_early_scale<0) %>% dplyr::select(beta_early_scale, gene)
 ```
 
-join 
+get background gene set 
 ```{r}
-bio_merge2 = bio_merge %>% dplyr::select(tid, Early_urban_PC1, urb_score, all_of(cytokine_cols))
-bio_merge2$sample_name = paste0("X", bio_merge2$tid)
+gtex = read.delim('~/Downloads/gtex_v8_cis_qtls_mashr/gtex_v8.eqtls.all_top.z_lfsr.txt')
+gtex_genes = unique(gtex$gene)
+gtex_genes = data.frame(unique(gtex$gene))
+ens_ids <- gtex_genes$unique.gtex.gene.
+ens_ids <- sub("\\..*$", "", ens_ids)  
+symbols <- mapIds(org.Hs.eg.db, keys = ens_ids, keytype = "ENSEMBL", column = "SYMBOL", multiVals = "first")
 
-df2 = df %>% filter(sample_name %in% bio_merge2$sample_name)
+gtex_genes$id_shortened = sub("\\..*$", "", gtex_genes$unique.gtex.gene.)
+gtex_genes$gene_name <- symbols[gtex_genes$id_shortened]
 
-merge_all = left_join(df2, bio_merge2, by="sample_name")
+gtex_genes_sub = gtex_genes %>% filter(!is.na(gene_name))
+all_genes = gtex_genes_sub %>% filter(gene_name %in% model_out$gene)
 ```
 
-looking at relationships btw cell types and cytokines 
+add in our genes 
 ```{r}
-p1 = merge_all %>% ggplot(aes(x=urb_score.y, y=Final.IL.2..pg.ml.)) + geom_point() + geom_smooth(method = lm, color="darkgreen") + theme_bw()
-p2 = merge_all %>% ggplot(aes(x=urb_score.y, y=Tem.Trm.cytotoxic.T.cells)) + geom_point() + geom_smooth(method = lm, color="darkgreen") + theme_bw()
-
-p3 = merge_all %>% ggplot(aes(x=Early_urban_PC1.x, y=Final.IL.2..pg.ml.)) + geom_point() + geom_smooth(method = lm, color="steelblue") + theme_bw()
-p4 = merge_all %>% ggplot(aes(x=Early_urban_PC1.x, y=Tem.Trm.cytotoxic.T.cells)) + geom_point() + geom_smooth(method = lm, color="steelblue") + theme_bw()
-
-cowplot::plot_grid(p1, p2, p3, p4)
-
-#7x5 L 
-```
-
-```{r}
-p1 = merge_all %>% ggplot(aes(x=urb_score.y, y=Final.IL12p70..pg.ml.)) + geom_point() + geom_smooth(method = lm, color="darkgreen") + theme_bw()
-p2 = merge_all %>% ggplot(aes(x=urb_score.y, y=Tem.Trm.cytotoxic.T.cells)) + geom_point() + geom_smooth(method = lm, color="darkgreen") + theme_bw()
-
-p3 = merge_all %>% ggplot(aes(x=Early_urban_PC1.x, y=Final.IL12p70..pg.ml.)) + geom_point() + geom_smooth(method = lm, color="steelblue") + theme_bw()
-p4 = merge_all %>% ggplot(aes(x=Early_urban_PC1.x, y=Tem.Trm.cytotoxic.T.cells)) + geom_point() + geom_smooth(method = lm, color="steelblue") + theme_bw()
-
-cowplot::plot_grid(p1, p2, p3, p4)
-
-#7x5 L
+all_genes$current_rural <- ifelse(all_genes$gene_name %in% current_rural$gene, 1, 0)
+all_genes$current_urb <- ifelse(all_genes$gene_name %in% current_urb$gene, 1, 0)
+all_genes$early_rural <- ifelse(all_genes$gene_name %in% early_rural$gene, 1, 0)
+all_genes$early_urb <- ifelse(all_genes$gene_name %in% early_urb$gene, 1, 0)
 ```
 
 ```{r}
-p1 = bio_merge2 %>% ggplot(aes(x=urb_score, y=Final.IL.2..pg.ml.)) + geom_point() + geom_smooth(method = lm, color="darkgreen") + theme_bw()
-p2 = df %>% ggplot(aes(x=urb_score.y, y=Tem.Trm.cytotoxic.T.cells)) + geom_point() + geom_smooth(method = lm, color="darkgreen") + theme_bw()
+gene_disease_sub$indicator <- 1
 
-p3 = bio_merge2 %>% ggplot(aes(x=Early_urban_PC1, y=Final.IL.2..pg.ml.)) + geom_point() + geom_smooth(method = lm, color="steelblue") + theme_bw()
-p4 = df %>% ggplot(aes(x=Early_urban_PC1, y=Tem.Trm.cytotoxic.T.cells)) + geom_point() + geom_smooth(method = lm, color="steelblue") + theme_bw()
+trait_wide <- gene_disease_sub %>%
+  distinct(trait, gene_name, indicator) %>%
+  tidyr::pivot_wider(
+    names_from = trait,
+    values_from = indicator,
+    values_fill = 0)
 
-cowplot::plot_grid(p1, p2, p3, p4)
-#7x5 L
+all_genes <- all_genes %>%
+  left_join(trait_wide, by = c("gene_name"))
+
+all_genes[is.na(all_genes)] <- 0
 ```
 
 
+run enrichment 
 ```{r}
-p1 = bio_merge2 %>% ggplot(aes(x=urb_score, y=Final.IL12p70..pg.ml.)) + geom_point() + geom_smooth(method = lm, color="darkgreen") + theme_bw()
-p2 = df %>% ggplot(aes(x=urb_score.y, y=Tem.Trm.cytotoxic.T.cells)) + geom_point() + geom_smooth(method = lm, color="darkgreen") + theme_bw()
+type_cols   <- c("current_rural", "current_urb", "early_rural", "early_urb")
+trait_cols  <- colnames(all_genes)[8:109]
 
-p3 = bio_merge2 %>% ggplot(aes(x=Early_urban_PC1, y=Final.IL12p70..pg.ml.)) + geom_point() + geom_smooth(method = lm, color="steelblue") + theme_bw()
-p4 = df %>% ggplot(aes(x=Early_urban_PC1, y=Tem.Trm.cytotoxic.T.cells)) + geom_point() + geom_smooth(method = lm, color="steelblue") + theme_bw()
+get_counts <- function(type_vec, trait_vec) {
+  overlap        <- sum(type_vec == 1 & trait_vec == 1)
+  only_in_type   <- sum(type_vec == 1 & trait_vec == 0)
+  only_in_trait  <- sum(type_vec == 0 & trait_vec == 1)
+  neither        <- sum(type_vec == 0 & trait_vec == 0)
+  
+  list(overlap = overlap,
+       only_in_type = only_in_type,
+       only_in_trait = only_in_trait,
+       neither = neither)
+}
 
-cowplot::plot_grid(p1, p2, p3, p4)
-#7x5 L
+results <- list()
+
+for (t in type_cols) {
+  for (tr in trait_cols) {
+    
+    counts <- get_counts(all_genes[[t]], all_genes[[tr]])
+    
+    ft <- fisher.test(matrix(c(counts$overlap, counts$only_in_type, counts$only_in_trait, counts$neither), nrow = 2,byrow = TRUE)) 
+    
+    results[[paste(t, tr, sep = "_vs_")]] <- data.frame(
+      type_column   = t,
+      trait_column  = tr,
+      overlap       = counts$overlap,
+      only_in_type  = counts$only_in_type,
+      only_in_trait = counts$only_in_trait,
+      neither       = counts$neither,
+      p_value       = ft$p.value,
+      odds_ratio    = unname(ft$estimate) ) } }
+
+results_df <- do.call(rbind, results)
+results_df$p_adj = p.adjust(results_df$p_value, method = "fdr")
 ```
 
 
+
+
+
+
+plot
 ```{r}
-summary(lm(Tem.Trm.cytotoxic.T.cells ~ Final.IL12p70..pg.ml. + urb_score.y + Early_urban_PC1.x + age_scale + sex_medical, data=merge_all))
+top5_df <- results_df %>%
+  filter(log2(odds_ratio) > 0) %>%
+  group_by(type_column) %>%
+  arrange(p_adj, .by_group = TRUE) %>%
+  slice_head(n = 5) %>%
+  ungroup()
+
+top5_df <- top5_df %>%
+  mutate(
+    trait_type = paste(trait_column, type_column, sep = "_"),
+    log2_OR = log2(odds_ratio))
+
+top5_df <- top5_df %>%
+  arrange(type_column, log2_OR) %>%
+  mutate(trait_type = factor(trait_type, levels = trait_type))
+
+ggplot(top5_df, aes(x = trait_type, y = log2_OR, fill = type_column)) + geom_col(color = "black") +
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 20),
+        axis.text.y = element_text(size = 30),
+        legend.text = element_text(size = 30),
+        text = element_text(size = 30)) +
+  scale_x_discrete(labels = top5_df$trait_column) +
+  labs(x = "Trait", y = "log2(Odds Ratio)") +
+  scale_fill_manual(values = c("darkolivegreen", "darkolivegreen3", "dodgerblue3", "skyblue2")) 
+
 ```
 
-```{r}
-summary(lm(Tem.Trm.cytotoxic.T.cells ~ Final.IL.2..pg.ml. + urb_score.y + Early_urban_PC1.x + age_scale + sex_medical, data=merge_all))
-```
+
+
 
 
 
