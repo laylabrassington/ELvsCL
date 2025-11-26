@@ -1,7 +1,7 @@
 ---
 title: "el_cl_plotting2"
 author: "layla"
-date: "2025-11-25"
+date: "2025-11-26"
 output: html_document
 ---
 
@@ -495,70 +495,6 @@ early_rural = early_genes %>% filter(beta_early_scale<0) %>% dplyr::select(beta_
 ```
 
 
-CL urban, background (all genes), test (all CL urban genes)
-```{r}
-test= subset(urb_genes, urb_genes$beta_urb_scale>0)$gene
-back<-model_out$gene
-
-GO <- enrichGO(gene = test,
-                      universe = back,
-                      OrgDb = org.Hs.eg.db,
-                      ont  = "BP", keyType = "SYMBOL",
-                      pAdjustMethod = "none",
-                      qvalueCutoff  = 1,minGSSize = 5, maxGSSize = 500,
-                      readable = TRUE)
-
-filtered_df <- GO@result[GO@result$p.adjust < 0.1, ]
-
-filtered_urban <- new("enrichResult",
-                          result = filtered_df,
-                          pvalueCutoff = 1,
-                          pAdjustMethod = "BH",
-                          qvalueCutoff = 1,
-                          organism = "UNKNOWN", 
-                          ontology = "BP",
-                          gene = GO@gene,
-                          universe = GO@universe,
-                          geneSets = GO@geneSets,
-                          keytype = "UNKNOWN",  
-                          readable = TRUE)
-edo <- pairwise_termsim(filtered_urban)
-dotplot(filtered_urban, showCategory=10, font.size=10)
-```
-
-
-CL rural, background (all genes), test (all CL rural genes)
-```{r}
-test= subset(urb_genes, urb_genes$beta_urb_scale<0)$gene
-back<-model_out$gene
-
-GO <- enrichGO(gene = test,
-                      universe = back,
-                      OrgDb = org.Hs.eg.db,
-                      ont  = "BP", keyType = "SYMBOL",
-                      pAdjustMethod = "none",
-                      qvalueCutoff  = 1,minGSSize = 5, maxGSSize = 500,
-                      readable = TRUE)
-
-filtered_df <- GO@result[GO@result$p.adjust < 0.1, ]
-
-filtered_rural <- new("enrichResult",
-                          result = filtered_df,
-                          pvalueCutoff = 1,
-                          pAdjustMethod = "BH",
-                          qvalueCutoff = 1,
-                          organism = "UNKNOWN", 
-                          ontology = "BP",
-                          gene = GO@gene,
-                          universe = GO@universe,
-                          geneSets = GO@geneSets,
-                          keytype = "UNKNOWN",  
-                          readable = TRUE)
-edo <- pairwise_termsim(filtered_rural)
-dotplot(filtered_rural, showCategory=10, font.size=10)
-```
-
-
 CL urban, background (all genes), test (significant CL urban genes)
 ```{r}
 test= subset(model_out, model_out$padj_urb<0.1 & model_out$beta_urb_scale>0)$gene
@@ -572,7 +508,7 @@ GO <- enrichGO(gene = test,
                       qvalueCutoff  = 1,minGSSize = 5, maxGSSize = 500,
                       readable = TRUE)
 
-filtered_df <- GO@result[GO@result$p.adjust < 0.1, ]
+filtered_df <- GO@result[GO@result$qvalue < 0.1, ]
 
 filtered_urban <- new("enrichResult",
                           result = filtered_df,
@@ -587,7 +523,6 @@ filtered_urban <- new("enrichResult",
                           keytype = "UNKNOWN",  
                           readable = TRUE)
 edo <- pairwise_termsim(filtered_urban)
-dotplot(filtered_urban, showCategory=10, font.size=10)
 ```
 
 
@@ -606,7 +541,7 @@ GO <- enrichGO(gene = test,
                       qvalueCutoff  = 1,minGSSize = 5, maxGSSize = 500,
                       readable = TRUE)
 
-filtered_df <- GO@result[GO@result$p.adjust < 0.1, ]
+filtered_df <- GO@result[GO@result$pvalue < 0.05, ]
 
 filtered_rural <- new("enrichResult",
                           result = filtered_df,
@@ -621,7 +556,6 @@ filtered_rural <- new("enrichResult",
                           keytype = "UNKNOWN",  
                           readable = TRUE)
 edo <- pairwise_termsim(filtered_rural)
-dotplot(filtered_rural, showCategory=10, font.size=10)
 ```
 
 
@@ -700,8 +634,7 @@ urb_reduced <- reduceSimMatrix(urb_simMatrix,
                      urb_id_scores,
                      threshold = 0.7,   # higher = bigger clusters
                      orgdb = org.Hs.eg.db)
-treemapPlot(urb_reduced)
-#saveRDS(urb_reduced, file = "~/Desktop/vandy/lea lab/oa/el_cl/figures/post_wgs_resolution/CL_urb_reduced_24nov25.rds")
+#saveRDS(urb_reduced, file = "~/Desktop/vandy/lea lab/oa/el_cl/figures/post_wgs_resolution/CL_urb_reduced_26nov25.rds")
 ```
 
 ```{r}
@@ -711,18 +644,17 @@ rural_reduced <- reduceSimMatrix(rural_simMatrix,
                      rural_id_scores,
                      threshold = 0.7,   # higher = bigger clusters
                      orgdb = org.Hs.eg.db)
-treemapPlot(rural_reduced)
-#saveRDS(rural_reduced, file = "~/Desktop/vandy/lea lab/oa/el_cl/figures/post_wgs_resolution/CL_rural_reduced_24nov25.rds")
+#saveRDS(rural_reduced, file = "~/Desktop/vandy/lea lab/oa/el_cl/figures/post_wgs_resolution/CL_rural_reduced_26nov25.rds")
 ```
 
 ```{r}
-urb_reduced <- readRDS("~/Desktop/vandy/lea lab/oa/el_cl/figures/post_wgs_resolution/CL_urb_reduced_24nov25.rds")
-rural_reduced <- readRDS("~/Desktop/vandy/lea lab/oa/el_cl/figures/post_wgs_resolution/CL_rural_reduced_24nov25.rds")
+urb_reduced <- readRDS("~/Desktop/vandy/lea lab/oa/el_cl/figures/post_wgs_resolution/CL_urb_reduced_26nov25.rds")
+rural_reduced <- readRDS("~/Desktop/vandy/lea lab/oa/el_cl/figures/post_wgs_resolution/CL_rural_reduced_26nov25.rds")
 
 urban_top_counts <- urb_reduced %>% count(parentTerm, name = "n_terms") %>% arrange(desc(n_terms)) %>% slice_max(n_terms, n = 5)
 urban_top_counts$group = "Urban"
 
-rural_top_counts <- rural_reduced %>% count(parentTerm, name = "n_terms") %>% arrange(desc(n_terms)) %>% slice_max(n_terms, n = 5)
+rural_top_counts <- rural_reduced %>%  count(parentTerm, name = "n_terms") %>% slice_max(n_terms, n = 5)
 rural_top_counts$group = "Rural"
 
 df_top = rbind(urban_top_counts, rural_top_counts)
@@ -731,15 +663,17 @@ manual_order <- c(
   # Rural top 5
   "T cell costimulation",
   "coronary vasculature morphogenesis",
-  "regulation of activated T cell proliferation",
   "regulation of cellular response to growth factor stimulus",
-  "positive regulation of protein localization to membrane",
+  "centriole-centriole cohesion",
+  "negative regulation of protein-containing complex assembly",
+  "positive regulation of cell adhesion", 
+  "regulation of activated T cell proliferation",
   
   # Urban top 5
-  "negative regulation of hydrolase activity", 
-  "endothelial cell migration",
+  "tumor necrosis factor production", 
   "response to bacterial lipoprotein",
-  "tumor necrosis factor production",
+  "endothelial cell migration",
+  "diol metabolic process",
   "nucleoside phosphate metabolic process")
 
 # Apply to factor
@@ -769,69 +703,6 @@ ggplot(df_top, aes(x = parentTerm, y = 0)) +
 
 ----------------------------------------------------------------------------------------------------------------------------
 
-EL urban, background (all genes), test (all EL urban genes)
-```{r}
-test= subset(early_genes, early_genes$beta_early_scale>0)$gene
-back<-model_out$gene
-
-GO <- enrichGO(gene = test,
-                      universe = back,
-                      OrgDb = org.Hs.eg.db,
-                      ont  = "BP", keyType = "SYMBOL",
-                      pAdjustMethod = "none",
-                      qvalueCutoff  = 1,minGSSize = 5, maxGSSize = 500,
-                      readable = TRUE)
-
-filtered_df <- GO@result[GO@result$p.adjust < 0.1, ]
-
-filtered_urban <- new("enrichResult",
-                          result = filtered_df,
-                          pvalueCutoff = 1,
-                          pAdjustMethod = "BH",
-                          qvalueCutoff = 1,
-                          organism = "UNKNOWN", 
-                          ontology = "BP",
-                          gene = GO@gene,
-                          universe = GO@universe,
-                          geneSets = GO@geneSets,
-                          keytype = "UNKNOWN",  
-                          readable = TRUE)
-edo <- pairwise_termsim(filtered_urban)
-dotplot(GO, showCategory=10, font.size=10)
-```
-
-
-EL rural, background (all genes), test (all EL rural genes)
-```{r}
-test= subset(early_genes, early_genes$beta_early_scale<0)$gene
-back<-model_out$gene
-
-GO <- enrichGO(gene = test,
-                      universe = back,
-                      OrgDb = org.Hs.eg.db,
-                      ont  = "BP", keyType = "SYMBOL",
-                      pAdjustMethod = "none",
-                      qvalueCutoff  = 1,minGSSize = 5, maxGSSize = 500,
-                      readable = TRUE)
-
-filtered_df <- GO@result[GO@result$p.adjust < 0.1, ]
-
-filtered_rural <- new("enrichResult",
-                          result = filtered_df,
-                          pvalueCutoff = 1,
-                          pAdjustMethod = "BH",
-                          qvalueCutoff = 1,
-                          organism = "UNKNOWN", 
-                          ontology = "BP",
-                          gene = GO@gene,
-                          universe = GO@universe,
-                          geneSets = GO@geneSets,
-                          keytype = "UNKNOWN",  
-                          readable = TRUE)
-edo <- pairwise_termsim(filtered_rural)
-dotplot(GO, showCategory=10, font.size=10)
-```
-
 
 
 EL urban, background (all genes), test (significant EL urban genes)
@@ -847,7 +718,7 @@ GO <- enrichGO(gene = test,
                       qvalueCutoff  = 1,minGSSize = 5, maxGSSize = 500,
                       readable = TRUE)
 
-filtered_df <- GO@result[GO@result$p.adjust < 0.1, ]
+filtered_df <- GO@result[GO@result$qvalue < 0.1, ]
 
 filtered_urban <- new("enrichResult",
                           result = filtered_df,
@@ -862,7 +733,6 @@ filtered_urban <- new("enrichResult",
                           keytype = "UNKNOWN",  
                           readable = TRUE)
 edo <- pairwise_termsim(filtered_urban)
-dotplot(GO, showCategory=10, font.size=10)
 ```
 
 EL rural, background (all genes), test (significant EL rural genes)
@@ -878,7 +748,7 @@ GO <- enrichGO(gene = test,
                       qvalueCutoff  = 1,minGSSize = 5, maxGSSize = 500,
                       readable = TRUE)
 
-filtered_df <- GO@result[GO@result$p.adjust < 0.1, ]
+filtered_df <- GO@result[GO@result$qvalue < 0.1, ]
 
 filtered_rural <- new("enrichResult",
                           result = filtered_df,
@@ -893,7 +763,6 @@ filtered_rural <- new("enrichResult",
                           keytype = "UNKNOWN",  
                           readable = TRUE)
 edo <- pairwise_termsim(filtered_rural)
-dotplot(GO, showCategory=10, font.size=10)
 ```
 
 ```{r}
@@ -968,8 +837,7 @@ urb_reduced <- reduceSimMatrix(urb_simMatrix,
                      urb_id_scores,
                      threshold = 0.7,   # higher = bigger clusters
                      orgdb = org.Hs.eg.db)
-treemapPlot(urb_reduced)
-#saveRDS(urb_reduced, file = "~/Desktop/vandy/lea lab/oa/el_cl/figures/post_wgs_resolution/EL_urb_reduced_25nov25.rds")
+#saveRDS(urb_reduced, file = "~/Desktop/vandy/lea lab/oa/el_cl/figures/post_wgs_resolution/EL_urb_reduced_26nov25.rds")
 ```
 
 ```{r}
@@ -979,13 +847,12 @@ rural_reduced <- reduceSimMatrix(rural_simMatrix,
                      rural_id_scores,
                      threshold = 0.7,   # higher = bigger clusters
                      orgdb = org.Hs.eg.db)
-treemapPlot(rural_reduced)
-#saveRDS(rural_reduced, file = "~/Desktop/vandy/lea lab/oa/el_cl/figures/post_wgs_resolution/EL_rural_reduced_25nov25.rds")
+#saveRDS(rural_reduced, file = "~/Desktop/vandy/lea lab/oa/el_cl/figures/post_wgs_resolution/EL_rural_reduced_26nov25.rds")
 ```
 
 ```{r}
-urb_reduced <- readRDS("~/Desktop/vandy/lea lab/oa/el_cl/figures/post_wgs_resolution/EL_urb_reduced_25nov25.rds")
-rural_reduced <- readRDS("~/Desktop/vandy/lea lab/oa/el_cl/figures/post_wgs_resolution/EL_rural_reduced_25nov25.rds")
+urb_reduced <- readRDS("~/Desktop/vandy/lea lab/oa/el_cl/figures/post_wgs_resolution/EL_urb_reduced_26nov25.rds")
+rural_reduced <- readRDS("~/Desktop/vandy/lea lab/oa/el_cl/figures/post_wgs_resolution/EL_rural_reduced_26nov25.rds")
 
 urban_top_counts <- urb_reduced %>% count(parentTerm, name = "n_terms") %>% arrange(desc(n_terms)) %>% slice_max(n_terms, n = 5)
 urban_top_counts$group = "Urban"
@@ -997,18 +864,20 @@ df_top = rbind(urban_top_counts, rural_top_counts)
 
 manual_order <- c(
   # Rural top 5
-  "regulation of B cell differentiation",
   "interleukin-6 production",
-  "cardiac septum morphogenesis",
-  "positive regulation of lymphocyte proliferation",
-  "regulation of T cell apoptotic process",
+  "regulation of B cell differentiation",
+  "regulation of body fluid levels",
+  "anatomical structure homeostasis",
+  "monoamine transport",
+  "platelet aggregation", 
+  "egulation of immune effector process",
   
   # Urban top 5
-  "smooth muscle cell proliferation",
-  "iron import into cell",
   "regulation of protein import into nucleus",
   "negative regulation of cytokine production",
-  "alpha-beta T cell activation")
+  "leukocyte chemotaxis",
+  "'de novo' post-translational protein folding",
+  "CD4-positive, alpha-beta T cell differentiation involved in immune response")
 
 # Apply to factor
 df_top <- df_top %>%
@@ -1032,14 +901,6 @@ ggplot(df_top, aes(x = parentTerm, y = 0)) +
     x = NULL, y = NULL,
     size = "Gene Count",
     color = "Group")
-```
-
-
-
-
-
-```{r}
-cnetplot(filtered_urban, foldChange = NULL, showCategory = 15)
 ```
 
 
