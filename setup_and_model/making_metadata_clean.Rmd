@@ -1,7 +1,7 @@
 ---
 title: "making_metadata_11nov25"
 author: "layla"
-date: "2025-11-13"
+date: "2025-11-26"
 output: html_document
 ---
 
@@ -1222,3 +1222,158 @@ saving important stuff here!!!
 ```{r}
 # saveRDS(exp2,file='~/vandy/early_life/redo_11nov25/exp_LARGE_25nov25_batch_effects_removed.rds')
 ```
+
+
+### fixing groups ---
+
+
+```{r}
+rm(list = ls())
+```
+
+read in current meta data 
+```{r}
+meta <- readRDS("~/vandy/early_life/redo_11nov25/meta_data_13nov25_AFTER_group_fixes.rds")
+```
+
+remove other-ethnicicty and start over 
+```{r}
+personal=read.csv('~/vandy/early_life/redo_11nov25/personal_information.csv')
+medical=read.csv('~/vandy/early_life/redo_11nov25//medical.csv')
+```
+
+
+from 25june25
+```{r}
+compile_ethnic <- function(personal_info = NULL, med = NULL){
+  if(is.null(personal_info)) stop("ERROR: Must include valid dataframe as population register")
+  
+  # add medical visit village for contextualizing info
+  personal_info$interview_location_med <- med$interview_location_med[match(personal_info$rid, med$rid)]
+  personal_info$other_ethnicity[which(personal_info$birth_place_state_other == "BugIS INDONESIA")] <- "Bugis"
+  
+  # First, deal with "Other" category by standardizing to fewer number of categories
+  personal_info$other_ethnicity <- tolower(personal_info$other_ethnicity)
+  
+  personal_info$other_ethnicity[which(personal_info$other_ethnicity %in% c("bidayuh"))]<-'Bidayuh'
+  personal_info$other_ethnicity[which(personal_info$other_ethnicity %in% c("bugis"))]<-'Bugis'
+  personal_info$other_ethnicity[which(personal_info$other_ethnicity %in% c("dayak, orang melayu"))]<-'Dayak_Malay'
+  personal_info$other_ethnicity[which(personal_info$other_ethnicity %in% c("dusun"))]<-'Dusun'
+  personal_info$other_ethnicity[which(personal_info$other_ethnicity %in% c("iban"))]<-'Iban'
+  personal_info$other_ethnicity[which(personal_info$other_ethnicity %in% c("father indo", "indo", "indonesia", "indonesian"))]<-'Indonesian'
+  personal_info$other_ethnicity[which(personal_info$other_ethnicity %in% c("jah hut", "jahut"))]<-'Jahut'
+  personal_info$other_ethnicity[which(personal_info$other_ethnicity %in% c("jahut dan cewang"))]<-'Jahut_Cewang'
+  personal_info$other_ethnicity[which(personal_info$other_ethnicity %in% c("kentak", "kintaq"))]<-'Kintaq'
+  personal_info$other_ethnicity[which(personal_info$other_ethnicity %in% c("lano"))]<-'Lanoh'
+  personal_info$other_ethnicity[which(personal_info$other_ethnicity %in% c("mah meri"))]<-'MahMeri'
+  personal_info$other_ethnicity[which(personal_info$other_ethnicity %in% c("melayu", "orang melayu"))]<-'Malay'
+  personal_info$other_ethnicity[which(personal_info$other_ethnicity %in% c("murut"))]<-'Murut'
+  personal_info$other_ethnicity[which(personal_info$other_ethnicity %in% c("kensiu"))]<-'Kensiu'
+  personal_info$other_ethnicity[which(personal_info$other_ethnicity %in% c("kensiu, melayu (father)"))]<-'Kensiu_Malay'
+  personal_info$other_ethnicity[which(personal_info$other_ethnicity %in% c("semelai"))]<-'Semelai'
+  
+  # special case of Jakun
+  personal_info$ethnicity___2[which(personal_info$ethnicity___2 == 0 & personal_info$interview_location_med == 25)]<-1  # this is Kg Petoh, so almost certainly jakun
+  
+  # this case marked only temiar just needs to be moved
+  personal_info$ethnicity___9[which(personal_info$other_ethnicity %in% c("temiar"))] <- 1
+  personal_info$ethnicity___99[which(personal_info$other_ethnicity %in% c("temiar"))] <- 0
+  
+  ## Extract numbers associated with ethnicities 
+  # Get columns that match the pattern "ethnicity___[number]"
+  pattern_cols <- grep("ethnicity___\\d+", names(personal_info), value = TRUE)
+  
+  # Extract numbers from column names
+  numbers <- as.numeric(sub(".*___(\\d+)", "\\1", pattern_cols))
+  
+  # Create list to store results
+  result_list <- vector("list", nrow(personal_info))
+  
+  # For each row
+  for (i in 1:nrow(personal_info)) {
+    
+    # Get indices where value is 1
+    ones_indices <- which(personal_info[i, pattern_cols] == 1)
+    
+    # Store corresponding numbers in result list
+    result_list[[i]] <- numbers[ones_indices]
+  }
+  
+  ## Replace numbers with the ethnic group names
+  result_list <- lapply(result_list, FUN=function(x){
+    case_match(x,
+               0 ~ "Batek",
+               1 ~ "Jehai",
+               2 ~ "Jakun",
+               3 ~ "MahMeri",
+               4 ~ "Mendriq",
+               5 ~ "OrangKuala",
+               6 ~ "OrangSeletar",
+               7 ~ "Semai",
+               8 ~ "SemaqBeri",
+               9 ~ "Temiar",
+               10 ~ "Temuan",
+               99 ~ "Other")
+  })
+  
+  ## Replace "Other" designations in list
+  for(i in 1:length(result_list)){
+    if(sum(result_list[[i]] == "Other") > 0){
+      result_list[[i]] <- case_match(result_list[[i]], 
+                                     "Other" ~ personal_info$other_ethnicity[[i]])
+    }
+    
+    result_list[[i]][which(is.na(result_list[[i]]))] <- "Unknown"
+  }
+  
+  
+  
+  ## Assign 'Multiple' to ethnicity if more than one ethnicity is indicated
+  personal_info$number_ethnics <- unlist(lapply(result_list, length)) 
+  
+  ## Make unknown for anyone without ethnicity information
+  result_list[which(personal_info$number_ethnics == 0)] <- "Unknown"
+  
+  
+  ## Create a general "ethnicity" column for use
+  personal_info$ethnicity <- unlist(lapply(result_list, paste, collapse="_"))
+  
+  # make broader groups
+  personal_info$ethnicity_groups<-'Other/Mixed'
+  personal_info$ethnicity_groups[which(personal_info$ethnicity %in% c('Batek','Jehai','Mendriq', "Kensiu", "Lanoh", "Kintaq"))]<-'Semang'
+  personal_info$ethnicity_groups[which(personal_info$ethnicity %in% c('Temuan','Jakun','OrangSeletar','OrangKuala','Semelai'))]<-'Proto_Malay'
+  personal_info$ethnicity_groups[which(personal_info$ethnicity %in% c('Temiar','Semai','SemaqBeri','MahMeri',"Jahut"))]<-'Senoi'
+  
+  return(personal_info)
+}
+```
+
+apply to the data 
+```{r}
+group_fixes <- compile_ethnic(personal_info = personal, med = medical)
+group_fixes %<>% dplyr::select(rid, ethnicity, other_ethnicity, ethnicity_groups)
+```
+
+remove old cols from meta data and add new ones
+```{r}
+meta %<>% select(-ethnicity, -ethnicity2, -other_ethnicity, -ethnicity_groups)
+meta2 = left_join(meta, group_fixes, by="rid")
+
+table(meta2$other_ethnicity, meta2$ethnicity_groups)
+```
+
+fix the last couple group errors 
+```{r}
+meta2$ethnicity_groups[which(meta2$other_ethnicity %in% c("Jahut_Cewang"))]<-'Senoi'
+```
+
+```{r}
+table(meta2$other_ethnicity, meta2$ethnicity_groups)
+```
+
+```{r}
+#saveRDS(meta2,file='~/vandy/early_life/redo_11nov25/meta_data_26nov25_AFTER_group_fixes.rds')
+```
+
+
+
