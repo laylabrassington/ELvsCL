@@ -1,7 +1,7 @@
 ---
 title: "GE_modeling_13nov25"
 author: "layla"
-date: "2025-11-19"
+date: "2025-11-26"
 output: html_document
 ---
 
@@ -73,7 +73,7 @@ rm(list = ls())
 ```
 
 ```{r}
-meta <- readRDS("~/vandy/early_life/redo_11nov25/modeling/meta_data_13nov25_AFTER_group_fixes.rds")
+meta <- readRDS("~/vandy/early_life/redo_11nov25/meta_data_26nov25_AFTER_group_fixes.rds")
 exp <- readRDS("~/vandy/early_life/redo_11nov25/modeling/exp_13nov25_batch_effects_removed.rds")
 K <- readRDS("~/vandy/early_life/redo_11nov25/modeling/K_13nov25.rds")
 ```
@@ -88,7 +88,7 @@ identical(colnames(exp),colnames(K))
 ```{r}
 #ensure group is a factor 
 meta$ethnicity_groups = as.factor(meta$ethnicity_groups)
-meta$ethnicity_groups <- relevel(meta$ethnicity_groups, ref = "Other/Mixed")
+meta$ethnicity_groups <- relevel(meta$ethnicity_groups, ref = "Senoi")
 
 modSv = model.matrix(~urb_scale + early_scale + age_scale + sex_medical + ethnicity_groups, data=meta)
 
