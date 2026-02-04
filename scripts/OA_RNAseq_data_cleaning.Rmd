@@ -1,0 +1,118 @@
+---
+title: "OA_RNAseq_data_cleaning"
+author: "layla"
+date: "2026-02-04"
+output: html_document
+---
+
+```{r warning = FALSE, message = FALSE}
+library(limma)
+library(edgeR)
+library(ggplot2)
+library(corrplot)
+library(googlesheets4)
+library(ggrepel)
+library(stringr)
+library(dplyr)
+library(magrittr)
+```
+
+read in qc data
+```{r}
+qc1=read_sheet('qc',sheet=1)
+qc2=read_sheet('qc',sheet=2)
+qc3=read_sheet('qc',sheet=3)
+corrected=read_sheet('corrected')
+qc1$batch<-1
+qc2$batch<-2
+qc3$batch<-3
+qc_all<-rbind(qc1,qc2,qc3)
+```
+
+estimate sex from the RNA-seq data as a sanity check
+```{r}
+# read in and filter the RNA-seq data
+counts=read.delim('OA_countMatrix.txt',sep=' ')
+protein_coding_genes <- readRDS("protein_coding_genes.rds")
+protein_coding_gene_ids <- protein_coding_genes$external_gene_name
+# only keep PC genes
+counts2 <- counts[rownames(counts) %in% protein_coding_gene_ids, ]
+
+t2g <- read.delim('protein_coding_gene_info.txt')
+y_genes <- t2g %>% filter(chromosome_name=="Y")
+
+# sex check
+qc_tmp<-as.data.frame(names(counts2))
+names(qc_tmp)[1]<-'sample_name'
+qc_tmp$tot_pc_counts<-apply(counts2,2,sum)
+qc_tmp$tot_counts<-apply(counts,2,sum)
+qc_tmp$chrY_counts<-apply(counts[which(rownames(counts) %in% y_genes$external_gene_name),],2,sum)
+qc_tmp$TID<-gsub('X', '', qc_tmp$sample_name)
+qc_tmp$order<-1:dim(qc_tmp)[1]
+qc_tmp$rnaseq_sex<-'female'
+qc_tmp$rnaseq_sex<-NA
+qc_tmp$rnaseq_sex[which(qc_tmp$chrY_counts/qc_tmp$tot_pc_counts>0.0005)]<-'male'
+qc_tmp$rnaseq_sex[which(qc_tmp$chrY_counts/qc_tmp$tot_pc_counts<0.0001)]<-'female'
+hist(qc_tmp$chrY_counts/qc_tmp$tot_pc_counts,breaks=50);abline(v=0.0001,col='red',lty=2,main='');abline(v=0.0005,col='blue',lty=2)
+```
+
+filtering genes
+```{r}
+qc_all<-merge(qc_tmp,qc_all,by='TID',all.x=T)
+qc_all<-qc_all[order(qc_all$order),]
+
+# remove the hemoglobin transcripts, hemoglobin contamination, and low counts
+counts2=counts2[-which(rownames(counts2) %in% c('HBB','HBA1','HBA2')),]
+remove<-subset(qc_all,tot_counts<1000000 | uniquely.mapped.reads <0.7 | unique.hemoglobin >10)
+counts3<-counts2[,-c(which(names(counts2) %in% remove$sample_name))]
+
+# make a TPM matrix 
+tmp<-as.data.frame(rownames(counts3))
+names(tmp)<-'gene'
+tmp$order<-1:dim(tmp)[1]
+tmp<-merge(tmp,protein_coding_genes,by.x='gene',by.y='external_gene_name')
+tmp<-merge(tmp,t2g,by.x='gene',by.y='external_gene_name')
+tmp$length<-tmp$end_position-tmp$start_position
+len<-as.data.frame(aggregate(tmp$length~tmp$gene,FUN=mean))
+
+counts3_v2<-counts3[which(rownames(counts3) %in% len[,1]),]
+
+x <- counts3_v2 / len[,2]
+tpm.mat <- t( t(x) * 1e6 / colSums(x) )
+
+med_TPM<-apply(tpm.mat,1,median)
+keep<-med_TPM[which(med_TPM>2)]
+counts4<-counts3[which(rownames(counts3) %in% names(keep)),]
+
+rm(counts);rm(counts2);rm(counts3)
+```
+
+voom norm and save 
+```{r}
+dge <- DGEList(counts=counts4)
+dge <- calcNormFactors(dge)
+
+v <- voomWithQualityWeights(dge, plot = FALSE)
+saveRDS(v,file='voomWithQualityWeights_normalized.rds')
+```
+
+pca and covariate detection 
+
+```{r}
+meta=read.delim('meta.txt', sep = ' ')
+v=readRDS('voomWithQualityWeights_normalized.rds')
+```
+
+run pca and plot
+```{r}
+pca<-prcomp(t(v$E))
+plot(pca$x[,1],pca$x[,2])
+```
+
+join GE pcs w/ metadata 
+```{r}
+pcs <- data.frame(pca$x[,1:2])
+pcs$sample_name <- rownames(pcs)
+meta <- left_join(meta, pcs, by = "sample_name")
+```
+
