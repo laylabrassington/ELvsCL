@@ -1,0 +1,97 @@
+#!/bin/bash
+#SBATCH --mail-user=your_email@your_institution.edu
+#SBATCH --mail-type=ALL
+#SBATCH --job-name=trim_map
+#SBATCH --mem=100G
+#SBATCH --time=50:00:00
+#SBATCH --output=trim_map.%a.out
+#SBATCH --array=2-20
+
+# Get ID from the job array
+ID=$(sed -n ${SLURM_ARRAY_TASK_ID}p /nobackup/lea_lab/layla/diy2_pilot/ids)
+echo "barcode: $ID"
+
+# Activate environment and load modules
+module load StdEnvACCRE/2023 miniconda3/23.9.0-0
+
+source activate RNAseq
+
+# Directories and files
+DATA_DIR="/filepath/data"
+OUT_DIR="/filepath/outs"
+GENOME="/filepath/hg38.fa"
+STAR_INDEX="/filepath/STARIndex"
+GTF_FILE="/filepath/hg38.ncbiRefSeq.gtf"
+
+
+# Find FASTQ files
+R1=$(find "$DATA_DIR" -type f -iname "*${ID}*R1*.fastq.gz" | head -n 1)
+R2=$(find "$DATA_DIR" -type f -iname "*${ID}*R2*.fastq.gz" | head -n 1)
+
+if [[ -z "$R1" || -z "$R2" ]]; then
+  echo "Error: FASTQ files not found for ID '$ID'" >&2
+  exit 1
+fi
+
+
+# Output files
+R1_TRIM="${OUT_DIR}/trimmed/${ID}_R1_trimmed.fastq.gz"
+R2_TRIM="${OUT_DIR}/trimmed/${ID}_R2_trimmed.fastq.gz"
+
+
+echo "$R1" 
+echo "$R2" 
+
+echo "starting trimming"
+
+# Trimming
+cutadapt --nextseq-trim 20 -e 0.02 --overlap 5 --quality-cutoff 20 \
+  -a "A{50}" -a AGATCGGAAGAGCACACGTCTGAACTCCAGTCA \
+ -a AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT \
+  -A AGATCGGAAGAGCACACGTCTGAACTCCAGTCA \
+  -A AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT \
+  --minimum-length=30 --trim-n -o "$R1_TRIM" -p "$R2_TRIM" "$R1" "$R2" \
+  && echo "Trimming completed successfully for $ID."
+
+conda deactivate
+
+module --force purge
+
+
+
+# STAR Mapping
+module load StdEnv/2020 star/2.7.5a
+
+
+echo "starting STAR mapping"
+
+# Find trimmed files
+if [[ -z $R1_TRIM || -z $R2_TRIM ]]; then
+  echo "Error: trimmed files not found for ID $ID." >&2
+  exit 1
+fi 
+
+STAR_OUT_PREFIX="${OUT_DIR}/mapped/${ID}."
+
+STAR --genomeDir "$STAR_INDEX" --outFileNamePrefix "$STAR_OUT_PREFIX" --runThreadN 8 \
+  --outFilterMultimapNmax 1 --readFilesCommand zcat --readFilesIn "$R1_TRIM" "$R2_TRIM" \
+  --outSAMtype BAM SortedByCoordinate --sjdbGTFfile "$GTF_FILE" \
+  && echo "STAR mapping completed successfully for $ID."
+
+
+
+
+module --force purge
+
+echo "starting counting"
+
+module load StdEnvACCRE/2023 miniconda3/23.9.0-0
+
+source activate RNAseq
+
+
+htseq-count -f bam -s no -m intersection-nonempty ${OUT_DIR}/mapped/${ID}.Aligned.sortedByCoord.out.bam "$GTF_FILE" > ${OUT_DIR}/counts/${ID}.Aligned.counts && echo "HTSeq-count completed successfully."
+
+conda deactivate
+
+echo "done :)"
