@@ -167,3 +167,17 @@ pcs$sample_name <- rownames(pcs)
 meta <- left_join(meta, pcs, by = "sample_name")
 ```
 
+regress out batch effects
+```{r}
+dat4$age_scale<-as.numeric(scale(dat4$age))
+dat4$urb_scale<-as.numeric(scale(dat4$urb_score))
+
+v2=v[,dat4$sample_name]
+identical(dat4$sample_name,colnames(v2))
+
+design = model.matrix(~as.factor(dat4$batch) + dat4$Uniquely.mapped.reads + dat4$monocytes_perc_combine + dat4$lympho_perc_combine)
+fit <-lmFit(v2,design)
+fit <- eBayes(fit)
+exp<-residuals.MArrayLM(object=fit, v2)
+```
+
