@@ -1,6 +1,6 @@
 ---
 title: "OA_RNAseq_data_cleaning"
-author: "layla"
+author: "Layla Brassington"
 date: "date"
 output: html_document
 ---
@@ -14,59 +14,6 @@ library(data.table)
 library(dplyr)
 library(magrittr)
 ```
-
-```{r}
-#set directory 
-directory <- "/filepath/counts"
-dt_list <- list()
-file_list <- list.files(directory, pattern = "\\.Aligned.counts$", full.names = TRUE)
-
-# Iterate over each file
-for (file in file_list) {
-  # Extract sample name from the file name
-  sample_name <- gsub(".*/(.*)_S1\\.Aligned\\.counts$", "\\1", basename(file))
-  
-  # Read the gene count file into a data table with correct delimiter
-  dt <- fread(file, sep = "\t", header = FALSE)
-  
-  # Check the number of columns
-  if (ncol(dt) == 2) {
-    # Assign column names
-    setnames(dt, c("gene", sample_name))
-    
-    # Filter out summary statistic rows that start with '__'
-    dt <- dt[!grepl("^__", gene)]
-    
-    # Set the gene column as the key (index)
-    setkey(dt, gene)
-    
-    # Append the data table to the list
-    dt_list[[sample_name]] <- dt
-  } else {
-    # Handle unexpected file structure
-    warning(paste("Skipping file:", file, "due to unexpected structure."))
-  }
-}
-```
-
-convert to gene matrix and save 
-```{r}
-# Merge all data tables into a single data table (matrix)
-gene_count_matrix <- Reduce(function(x, y) merge(x, y, all = TRUE, by = "gene"), dt_list)
-
-# Replace NA with 0 if there are any missing genes in some samples
-gene_count_matrix[is.na(gene_count_matrix)] <- 0
-
-# Remove "_S1.Aligned.counts" from all column names
-names(gene_count_matrix) <- gsub(".Aligned\\.counts$", "", names(gene_count_matrix))
-
-rownames(gene_count_matrix) <- gene_count_matrix$gene
-
-gene_count_matrix$gene <- NULL
-
-fwrite(gene_count_matrix, "/filepath/OA_countMatrix.txt", sep = "\t")
-```
-
 
 read in qc data
 ```{r}
@@ -83,7 +30,7 @@ qc_all<-rbind(qc1,qc2,qc3)
 estimate sex from the RNA-seq data as a sanity check
 ```{r}
 # read in and filter the RNA-seq data
-counts=read.delim('OA_countMatrix.txt',sep=' ')
+counts=read.delim('countMatrix.txt',sep=' ')
 protein_coding_genes <- readRDS("protein_coding_genes.rds")
 protein_coding_gene_ids <- protein_coding_genes$external_gene_name
 # only keep PC genes
@@ -169,13 +116,13 @@ meta <- left_join(meta, pcs, by = "sample_name")
 
 regress out batch effects
 ```{r}
-dat4$age_scale<-as.numeric(scale(dat4$age))
-dat4$urb_scale<-as.numeric(scale(dat4$urb_score))
+meta$age_scale<-as.numeric(scale(meta$age))
+meta$urb_scale<-as.numeric(scale(meta$urb_score))
 
-v2=v[,dat4$sample_name]
-identical(dat4$sample_name,colnames(v2))
+v2=v[,meta$sample_name]
+identical(meta$sample_name,colnames(v2))
 
-design = model.matrix(~as.factor(dat4$batch) + dat4$Uniquely.mapped.reads + dat4$monocytes_perc_combine + dat4$lympho_perc_combine)
+design = model.matrix(~as.factor(meta$batch) + meta$Uniquely.mapped.reads + meta$monocytes_perc_combine + meta$lympho_perc_combine)
 fit <-lmFit(v2,design)
 fit <- eBayes(fit)
 exp<-residuals.MArrayLM(object=fit, v2)
