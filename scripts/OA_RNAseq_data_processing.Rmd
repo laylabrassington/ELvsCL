@@ -107,7 +107,7 @@ pca<-prcomp(t(v$E))
 plot(pca$x[,1],pca$x[,2])
 ```
 
-join GE pcs w/ metadata 
+join GE pcs w/ metadata (see https://github.com/laylabrassington/rnaseq_genotyping)
 ```{r}
 pcs <- data.frame(pca$x[,1:2])
 pcs$sample_name <- rownames(pcs)
