@@ -1,0 +1,82 @@
+---
+title: "GE_modeling"
+author: "layla"
+date: "2026-04-08"
+output: html_document
+---
+
+```{r message=FALSE, warning=FALSE}
+library(readr)
+library(limma)
+library(EMMREML)
+library(edgeR)
+library(ggplot2)
+library(stringr)
+library(dplyr)
+library(magrittr)
+```
+
+
+### LMM with a GRM with everyone and group category as a fixed effect  ---
+
+```{r}
+meta <- readRDS("/filepath/meta_data.rds")
+exp <- readRDS("/filepath/exp.rds")
+K <- readRDS("/filepath/K.rds")
+```
+
+make sure everything is in the same order
+```{r}
+identical(meta$sample_name,colnames(exp))
+identical(meta$sample_name,colnames(K))
+identical(colnames(exp),colnames(K))
+```
+
+make sure everything is in the same order
+```{r}
+identical(meta$sample_name,colnames(exp))
+identical(meta$sample_name,colnames(K))
+identical(colnames(exp),colnames(K))
+```
+
+```{r eval=FALSE}
+#ensure group is a factor 
+meta$ancestry_groups = as.factor(meta$ancestry_groups)
+meta$ancestry_groups <- relevel(meta$ancestry_groups, ref = "Senoi")
+
+modSv = model.matrix(~urb_scale + early_scale + age_scale + sex_medical + ancestry_groups, data=meta)
+
+Z <- matrix(0, nrow = length(rownames(K)), ncol = length(colnames(K)))
+rownames(Z) <- rownames(K)
+colnames(Z) <- colnames(K)
+
+for (i in seq_along(rownames(Z))) {
+  match_idx <- match(rownames(Z)[i], meta$sample_name)
+  if (!is.na(match_idx)) {
+    Z[i, match_idx] <- 1
+  }
+}
+
+#Declare object res_full to store in it the model results: beta coefficients, standard deviations and p values
+res_full = matrix(NA, nrow=nrow(exp), ncol=3 * ncol(modSv))
+colnames(res_full) = c(
+  paste0("beta_", colnames(modSv)),
+  paste0("sdev_", colnames(modSv)),
+  paste0("p_value_", colnames(modSv))
+)
+res_full = as.data.frame(res_full)
+rownames(res_full)=rownames(exp)
+
+#run the model and store results (need to run in console)
+for(i in 1:nrow(exp))
+{
+  emma=emmreml(y=exp[i,],X=modSv,Z=as.matrix(Z),K=as.matrix(K),varbetahat=T,varuhat=T,PEVuhat=T,test=T)
+  res_full[i,]=t(c(emma$betahat,emma$varbetahat,emma$pvalbeta[,"none"]))
+  print(i)
+}
+
+#save res_full
+#saveRDS(res_full,file='/filepath/lmm_grm_evryne_grp_fixed_effect_26nov25.rds')
+```
+
+
