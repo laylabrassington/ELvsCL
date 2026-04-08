@@ -6,3 +6,4 @@ order of scripts:
 2. PBMC_rnaseq_qc_base.sh
 3. PBMC_counts_to_R.R
 4. OA_RNAseq_data_processing.Rmd
+5. GE_modeling.Rmd
