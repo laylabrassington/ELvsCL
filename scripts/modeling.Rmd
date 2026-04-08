@@ -1,6 +1,6 @@
 ---
-title: "GE_modeling"
-author: "layla"
+title: "modeling"
+author: "Layla Brassington"
 date: "2026-04-08"
 output: html_document
 ---
@@ -79,4 +79,48 @@ for(i in 1:nrow(exp))
 #saveRDS(res_full,file='/filepath/lmm_grm_evryne_grp_fixed_effect_26nov25.rds')
 ```
 
+### elastic net regression  ---
 
+
+training data
+```{r}
+stable_idx <- meta %>% filter(lifestyle_bins %in% c("always_rural", "always_urban")) %>% dplyr::select(sample_name)
+X <- exp[, stable_idx$sample_name]
+X <- t(X) 
+y <- factor(meta$lifestyle_bins[match(rownames(X), meta$sample_name)], levels = c("always_rural", "always_urban"))
+y_bin <- ifelse(y == "always_urban", 1, 0)
+```
+
+```{r}
+pred <- rep(NA, length(y_bin))
+
+for (i in seq_along(y_bin)) {
+
+  X_train <- X[-i, ]
+  y_train <- y_bin[-i]
+
+  X_test <- X[i, , drop = FALSE]
+
+  cvfit <- cv.glmnet(x = X_train, y = y_train, family = "binomial", alpha = 1, nfolds = 50)
+
+  pred[i] <- predict(cvfit, newx = X_test, s = "lambda.min", type = "response")
+  
+  print(i)
+}
+```
+
+look at how well it predicts with the leave one out 
+```{r}
+roc_obj <- roc(y_bin, pred)
+auc(roc_obj)
+```
+
+```{r}
+final_fit <- cv.glmnet(x = X, y = y_bin, family = "binomial", alpha = 1, nfolds = 50)
+
+switch_idx = meta %>% filter(lifestyle_bins %in% c("rural_to_urban", "urban_to_rural")) %>% dplyr::select(sample_name)
+X_switch <- t(exp[, switch_idx$sample_name])   # transpose: samples × genes
+
+# Predict urbanicity probability for switchers
+switch_scores <- predict(final_fit, newx = X_switch, s = "lambda.min", type = "response")
+```
