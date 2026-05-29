@@ -1,5 +1,5 @@
 ---
-title: "OA_RNAseq_data_cleaning"
+title: "RNAseq_data_cleaning"
 author: "Layla Brassington"
 date: "date"
 output: html_document
