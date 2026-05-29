@@ -6,8 +6,8 @@
 #SBATCH --cpus-per-task=2             
 #SBATCH -t 0-10:10              
 #SBATCH --mem=100GB
-#SBATCH -o trim_map_PBMC_%A_%a.out     
-#SBATCH -e trim_map_PBMC_%A_%a.err     
+#SBATCH -o trim_map_count_%A_%a.out     
+#SBATCH -e trim_map_count_%A_%a.err     
 #SBATCH --array=1-500%25
 
 #############################################
