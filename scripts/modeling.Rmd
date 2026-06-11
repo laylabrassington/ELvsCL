@@ -1,11 +1,11 @@
 ---
 title: "modeling"
 author: "Layla Brassington"
-date: "2026-04-08"
+date: "2026-06-11"
 output: html_document
 ---
 
-```{r message=FALSE, warning=FALSE}
+```{r}
 library(readr)
 library(limma)
 library(EMMREML)
@@ -14,10 +14,53 @@ library(ggplot2)
 library(stringr)
 library(dplyr)
 library(magrittr)
+library(tidyverse)
+library(broom)
+library(purrr)
 ```
 
 
-### LMM with a GRM with everyone and group category as a fixed effect  ---
+### Immune biomarker statistical analyses  ---
+
+average repeated samples
+```{r}
+cols_of_interest <- c("IL-8", "IL-6", "TNF-α", "CRP", "IL-13", "LBP", "Leptin","IL-2", "IL-1β", "IL-4", "IFN-γ", "IL-10", "IL-12")
+
+df <- biomarkers %>% group_by(Sample.ID) %>%
+  summarise(across(all_of(cols_of_interest), ~ mean(.x, na.rm = TRUE)), .groups = "drop")
+```
+
+standardize data
+```{r}
+# 1. Log-transform 
+df[cols_of_interest] <- log2(df[cols_of_interest])
+
+# 2. Z-score scale (center and scale each column)
+df[cols_of_interest] <- scale(df[cols_of_interest])
+```
+
+fit linear model for each cytokine
+```{r}
+safe_model <- safely(function(colname) {
+  formula_str <- paste0(
+    colname, " ~ urb_scale + early_scale + age_scale + sex_medical + Plate"
+  )
+  f <- as.formula(formula_str)
+  model <- lm(f, data = df)
+
+  # Get tidy model summary and number of observations
+  list(
+    tidy = broom::tidy(model),    # this includes Estimate, Std. Error, t value, Pr(>|t|)
+    n = nobs(model)
+  )
+})
+
+model_results <- map(set_names(cols_of_interest, cols_of_interest), safe_model)
+```
+
+
+
+### Differential expression analyses  ---
 
 ```{r}
 meta <- readRDS("/filepath/meta_data.rds")
@@ -32,14 +75,7 @@ identical(meta$sample_name,colnames(K))
 identical(colnames(exp),colnames(K))
 ```
 
-make sure everything is in the same order
 ```{r}
-identical(meta$sample_name,colnames(exp))
-identical(meta$sample_name,colnames(K))
-identical(colnames(exp),colnames(K))
-```
-
-```{r eval=FALSE}
 #ensure group is a factor 
 meta$ancestry_groups = as.factor(meta$ancestry_groups)
 meta$ancestry_groups <- relevel(meta$ancestry_groups, ref = "Senoi")
@@ -79,7 +115,7 @@ for(i in 1:nrow(exp))
 #saveRDS(res_full,file='/filepath/lmm_grm_evryne_grp_fixed_effect_26nov25.rds')
 ```
 
-### elastic net regression  ---
+### Elastic net classifier  ---
 
 
 training data
