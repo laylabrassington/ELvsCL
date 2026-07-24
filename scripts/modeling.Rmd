@@ -1,7 +1,7 @@
 ---
 title: "modeling"
 author: "Layla Brassington"
-date: "2026-06-11"
+date: "2026-07-24"
 output: html_document
 ---
 
@@ -78,7 +78,6 @@ identical(colnames(exp),colnames(K))
 ```{r}
 #ensure group is a factor 
 meta$ancestry_groups = as.factor(meta$ancestry_groups)
-meta$ancestry_groups <- relevel(meta$ancestry_groups, ref = "Senoi")
 
 modSv = model.matrix(~urb_scale + early_scale + age_scale + sex_medical + ancestry_groups, data=meta)
 
@@ -110,9 +109,6 @@ for(i in 1:nrow(exp))
   res_full[i,]=t(c(emma$betahat,emma$varbetahat,emma$pvalbeta[,"none"]))
   print(i)
 }
-
-#save res_full
-#saveRDS(res_full,file='/filepath/lmm_grm_evryne_grp_fixed_effect_26nov25.rds')
 ```
 
 ### Elastic net classifier  ---
@@ -120,11 +116,11 @@ for(i in 1:nrow(exp))
 
 training data
 ```{r}
-stable_idx <- meta %>% filter(lifestyle_bins %in% c("always_rural", "always_urban")) %>% dplyr::select(sample_name)
+stable_idx <- meta %>% filter(lifestyle_bins %in% c("always_nonindustrial", "always_industrialized")) %>% dplyr::select(sample_name)
 X <- exp[, stable_idx$sample_name]
 X <- t(X) 
-y <- factor(meta$lifestyle_bins[match(rownames(X), meta$sample_name)], levels = c("always_rural", "always_urban"))
-y_bin <- ifelse(y == "always_urban", 1, 0)
+y <- factor(meta$lifestyle_bins[match(rownames(X), meta$sample_name)], levels = c("always_nonindustrial", "always_industrialized"))
+y_bin <- ifelse(y == "always_industrialized", 1, 0)
 ```
 
 ```{r}
@@ -154,7 +150,7 @@ auc(roc_obj)
 ```{r}
 final_fit <- cv.glmnet(x = X, y = y_bin, family = "binomial", alpha = 1, nfolds = 50)
 
-switch_idx = meta %>% filter(lifestyle_bins %in% c("rural_to_urban", "urban_to_rural")) %>% dplyr::select(sample_name)
+switch_idx = meta %>% filter(lifestyle_bins %in% c("nonindustrial_to_industrialized", "industrialized_to_nonindustrial")) %>% dplyr::select(sample_name)
 X_switch <- t(exp[, switch_idx$sample_name])   # transpose: samples × genes
 
 # Predict urbanicity probability for switchers
