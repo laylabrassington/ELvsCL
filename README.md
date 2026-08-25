@@ -1,5 +1,5 @@
-# ELvsCL
-### code for EL vs CL paper
+# Immune Function Is Differentially Shaped by Early- and Later-Life Exposure to Industrialized Environments in the Orang Asli
+### https://www.biorxiv.org/content/10.64898/2026.07.24.740585v1
 ----------------------------------------
 order of scripts:
 1. trim_map_count.sh
